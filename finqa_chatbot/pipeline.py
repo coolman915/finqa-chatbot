@@ -94,6 +94,7 @@ def run_batch(
     workers: int = 4,
     save_path: str | None = None,
     save_every: int = 10,
+    data: list[dict] | None = None,
 ) -> list[dict[str, Any]]:
     """Run the pipeline on a full dataset split with incremental saves.
 
@@ -104,10 +105,12 @@ def run_batch(
         save_path: Path to save incremental results (JSON). If None, no
             incremental saving.
         save_every: Save results every N completed examples.
+        data: Pre-loaded/sliced dataset (overrides split + max_examples).
     """
-    data = load_dataset(split)
-    if max_examples:
-        data = data[:max_examples]
+    if data is None:
+        data = load_dataset(split)
+        if max_examples:
+            data = data[:max_examples]
 
     graph = build_graph()
     predictions: list[dict] = []

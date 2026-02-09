@@ -33,19 +33,37 @@ def main():
                         help="Output file for predictions JSON")
     parser.add_argument("--llm-judge", action="store_true",
                         help="Use LLM judge for prog_acc when exe passes but structural match fails")
+    parser.add_argument("--start", type=int, default=None,
+                        help="Start index (inclusive) for dataset slice")
+    parser.add_argument("--end", type=int, default=None,
+                        help="End index (exclusive) for dataset slice")
     args = parser.parse_args()
 
     settings = get_settings()
     output_dir = settings.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    n_tag = f"_{args.max_examples}" if args.max_examples else ""
+    # Build output filename tag
+    if args.start is not None or args.end is not None:
+        n_tag = f"_{args.start or 0}_{args.end or 'end'}"
+    elif args.max_examples:
+        n_tag = f"_{args.max_examples}"
+    else:
+        n_tag = ""
     out_file = args.output or str(output_dir / f"predictions_{args.split}{n_tag}.json")
+
+    # Load and slice dataset
+    gold_data = load_dataset(args.split)
+    if args.start is not None or args.end is not None:
+        gold_data = gold_data[args.start:args.end]
+    elif args.max_examples:
+        gold_data = gold_data[:args.max_examples]
 
     print(f"Model:      {settings.model_name}")
     print(f"Max rounds: {settings.max_rounds}")
     print(f"Candidates: {settings.num_candidates}")
     print(f"Workers:    {args.workers}")
+    print(f"Examples:   {len(gold_data)}")
     print(f"Output:     {out_file}")
     print()
 
@@ -57,10 +75,10 @@ def main():
 
     predictions = run_batch(
         split=args.split,
-        max_examples=args.max_examples,
         workers=args.workers,
         save_path=out_file,
         save_every=10,
+        data=gold_data,
     )
 
     total_time = time.time() - start
@@ -70,11 +88,6 @@ def main():
     with open(out_file, "w") as f:
         json.dump(predictions, f, indent=2, default=str)
     print(f"Predictions saved to {out_file}")
-
-    # Evaluate
-    gold_data = load_dataset(args.split)
-    if args.max_examples:
-        gold_data = gold_data[:args.max_examples]
 
     print("\n" + "=" * 60)
     print("OFFICIAL EVALUATION")
