@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections import Counter
 
 from langchain_openai import ChatOpenAI
@@ -106,18 +105,21 @@ def summarizer_node(state: GraphState) -> dict:
 
     messages.append(HumanMessage(content=user_content))
 
-    # Generate N candidates with higher temperature for diversity
+    # Generate N candidates in ONE call using OpenAI's n parameter
     llm_diverse = ChatOpenAI(
         model=settings.model_name,
         temperature=settings.candidate_temperature,
         api_key=settings.openai_api_key,
+        n=settings.num_candidates,
     )
 
     candidates: list[str] = []
-    for _ in range(settings.num_candidates):
-        try:
-            resp = llm_diverse.invoke(messages)
-            prog = resp.content.strip()
+    try:
+        resp = llm_diverse.generate([
+            [m for m in messages]
+        ])
+        for gen in resp.generations[0]:
+            prog = gen.text.strip()
             # Basic cleanup
             prog = prog.strip("`").strip()
             if prog.startswith("Program:"):
@@ -131,8 +133,21 @@ def summarizer_node(state: GraphState) -> dict:
             else:
                 if prog:
                     candidates.append(prog)
+    except Exception:
+        # Fallback: single call if n parameter fails
+        llm_single = ChatOpenAI(
+            model=settings.model_name,
+            temperature=settings.candidate_temperature,
+            api_key=settings.openai_api_key,
+        )
+        try:
+            resp_single = llm_single.invoke(messages)
+            prog = resp_single.content.strip().strip("`").strip()
+            if prog.startswith("Program:"):
+                prog = prog[len("Program:"):].strip()
+            candidates.append(prog)
         except Exception:
-            continue
+            pass
 
     # Select best via simplicity-weighted majority voting
     selected = _select_program(candidates, table)

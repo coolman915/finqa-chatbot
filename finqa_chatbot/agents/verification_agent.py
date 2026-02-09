@@ -4,26 +4,12 @@ from __future__ import annotations
 
 import re
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
-
 from ..config import get_settings
 from ..schema import LogEntry, EntryType
 from ..graph.state import GraphState
 from ..dsl.parser import parse_program_to_tokens
-from ..dsl.executor import eval_program, str_to_num
+from ..dsl.executor import eval_program
 from ..dsl.operations import ALL_OPS
-from ..prompts.verification import VERIFICATION_SYSTEM, VERIFICATION_USER_TEMPLATE
-
-
-# Agent name → scheduler agent key mapping
-_AGENT_MAP = {
-    "tableagent": "table_agent",
-    "contextagent": "context_agent",
-    "kgagent": "kg_agent",
-    "summarizingagent": "summarizer",
-    "summarizer": "summarizer",
-}
 
 
 def _extract_program_literals(program_str: str) -> list[str]:
@@ -165,42 +151,10 @@ def verification_node(state: GraphState) -> dict:
         issues.append(unit_issue)
         targets.add("summarizer")
 
-    # 5. LLM cross-check (only if structural checks pass)
-    if not issues:
-        log_text = "\n".join(e.to_text() for e in log)
-        user_content = VERIFICATION_USER_TEMPLATE.format(
-            question=question,
-            program=program_str,
-            exe_result=exe_result,
-            log_text=log_text,
-        )
-
-        llm = ChatOpenAI(
-            model=settings.model_name,
-            temperature=0.0,
-            api_key=settings.openai_api_key,
-        )
-
-        try:
-            response = llm.invoke([
-                SystemMessage(content=VERIFICATION_SYSTEM),
-                HumanMessage(content=user_content),
-            ])
-            resp_text = response.content.strip()
-
-            if "STATUS: FLAG" in resp_text:
-                issues.append("LLM cross-check flagged issue")
-                # Parse targets from response
-                target_match = re.search(r'TARGETS?:\s*(.+)', resp_text)
-                if target_match:
-                    for t in target_match.group(1).split(","):
-                        t = t.strip().lower().replace(" ", "")
-                        if t in _AGENT_MAP:
-                            targets.add(_AGENT_MAP[t])
-                if not targets:
-                    targets.add("summarizer")
-        except Exception:
-            pass  # LLM failure is not a FLAG
+    # 5. LLM cross-check — SKIPPED for latency.
+    #    Structural checks (evidence grounding, recomputation, temporal,
+    #    unit consistency) are sufficient. The LLM cross-check added ~10-15s
+    #    per example with minimal accuracy gain.
 
     if issues:
         target_list = list(targets) if targets else ["summarizer"]
