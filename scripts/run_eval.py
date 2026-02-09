@@ -31,6 +31,8 @@ def main():
                         help="Resume from existing output file")
     parser.add_argument("--output", type=str, default=None,
                         help="Output file for predictions JSON")
+    parser.add_argument("--llm-judge", action="store_true",
+                        help="Use LLM judge for prog_acc when exe passes but structural match fails")
     args = parser.parse_args()
 
     settings = get_settings()
@@ -77,7 +79,7 @@ def main():
     print("\n" + "=" * 60)
     print("OFFICIAL EVALUATION")
     print("=" * 60)
-    official = evaluate_result(predictions, gold_data)
+    official = evaluate_result(predictions, gold_data, use_llm_judge=args.llm_judge)
     for k, v in official.items():
         if isinstance(v, float):
             print(f"  {k}: {v:.4f}")
