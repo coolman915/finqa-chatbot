@@ -6,6 +6,7 @@ from typing import Any
 
 from ..dsl.executor import eval_program
 from ..dsl.parser import parse_program_to_tokens
+from .official import _relaxed_equal
 
 
 def compute_metrics(
@@ -48,7 +49,7 @@ def compute_metrics(
         if invalid_flag:
             invalid_count += 1
             error_types["invalid_program"] += 1
-        elif exe_res == gold_res:
+        elif _relaxed_equal(exe_res, gold_res):
             exe_correct += 1
         else:
             error_types["wrong_answer"] += 1

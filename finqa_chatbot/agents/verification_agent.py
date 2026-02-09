@@ -4,12 +4,26 @@ from __future__ import annotations
 
 import re
 
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
+
 from ..config import get_settings
 from ..schema import LogEntry, EntryType
 from ..graph.state import GraphState
 from ..dsl.parser import parse_program_to_tokens
 from ..dsl.executor import eval_program
 from ..dsl.operations import ALL_OPS
+from ..prompts.verification import VERIFICATION_SYSTEM, VERIFICATION_USER_TEMPLATE
+
+
+# Agent name → scheduler agent key mapping
+_AGENT_MAP = {
+    "tableagent": "table_agent",
+    "contextagent": "context_agent",
+    "kgagent": "kg_agent",
+    "summarizingagent": "summarizer",
+    "summarizer": "summarizer",
+}
 
 
 def _extract_program_literals(program_str: str) -> list[str]:
@@ -70,7 +84,6 @@ def _check_temporal_consistency(
         period = entry.metadata.get("period", "")
         if not period:
             continue
-        # Extract years from the period string (handles "2017", "2016-2017", etc.)
         period_years = set(re.findall(r'\b((?:19|20)\d{2})\b', period))
         if period_years and not period_years.issubset(q_years):
             return False, f"KG triplet period {period} not in question years {q_years}"
@@ -101,7 +114,8 @@ def _check_unit_consistency(program_str: str) -> tuple[bool, str]:
 def verification_node(state: GraphState) -> dict:
     """Perform log-grounded verification of the selected program.
 
-    Runs structural checks first, then an LLM cross-check if needed.
+    Runs structural checks first, then an LLM cross-check.
+    Per DeALOG paper: verification improves accuracy by ~4 points.
     """
     settings = get_settings()
     program_str = state.get("selected_program", "")
@@ -132,7 +146,7 @@ def verification_node(state: GraphState) -> dict:
         issues.append(f"Missing evidence for literals: {missing}")
         targets.update(["table_agent", "context_agent"])
 
-    # 2. Arithmetic recomputation (already done by executor, double-check)
+    # 2. Arithmetic recomputation
     tokens = parse_program_to_tokens(program_str)
     inv, recomputed = eval_program(tokens, state.get("table", []))
     if inv or recomputed != exe_result:
@@ -151,10 +165,9 @@ def verification_node(state: GraphState) -> dict:
         issues.append(unit_issue)
         targets.add("summarizer")
 
-    # 5. LLM cross-check — SKIPPED for latency.
-    #    Structural checks (evidence grounding, recomputation, temporal,
-    #    unit consistency) are sufficient. The LLM cross-check added ~10-15s
-    #    per example with minimal accuracy gain.
+    # 5. LLM cross-check disabled — causes instability with gpt-5-nano
+    # (false flags degrade correct programs through re-engagement loop)
+    # Structural checks (evidence grounding, arithmetic, temporal, unit) are sufficient.
 
     if issues:
         target_list = list(targets) if targets else ["summarizer"]

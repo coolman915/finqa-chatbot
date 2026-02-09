@@ -39,8 +39,8 @@ class Settings(BaseSettings):
 
     model_config = {
         "env_file": [
-            str(Path(__file__).resolve().parent.parent / ".env"),
             str(Path(__file__).resolve().parent.parent.parent / ".env"),
+            str(Path(__file__).resolve().parent.parent / ".env"),
         ],
         "env_file_encoding": "utf-8",
         "extra": "ignore",

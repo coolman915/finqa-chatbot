@@ -26,6 +26,8 @@ def init_node(state: GraphState) -> dict:
         "exe_invalid": False,
         "verification_status": "",
         "flag_targets": [],
+        "best_program": "",
+        "best_exe_result": None,
         "final_answer": None,
         "log": [],
     }

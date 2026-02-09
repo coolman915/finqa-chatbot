@@ -15,33 +15,37 @@ class GraphState(TypedDict):
     can return new log entries that get auto-appended.
     """
 
-    # ── Input (set once at init) ────────────────────────────────────────
+    # Input (set once at init)
     entry: dict
     question: str
     table: list[list[str]]
     pre_text: list[str]
     post_text: list[str]
 
-    # ── DeALOG shared log (append-only) ─────────────────────────────────
+    # DeALOG shared log (append-only)
     log: Annotated[list[LogEntry], operator.add]
 
-    # ── Scheduler state ─────────────────────────────────────────────────
+    # Scheduler state
     round_number: int
     active_agents: list[str]
     max_rounds: int
 
-    # ── Summarizer output ───────────────────────────────────────────────
+    # Summarizer output
     candidate_programs: list[str]
     selected_program: str
     program_tokens: list[str]
 
-    # ── Executor output ─────────────────────────────────────────────────
+    # Executor output
     exe_result: Any
     exe_invalid: bool
 
-    # ── Verification ────────────────────────────────────────────────────
+    # Verification
     verification_status: str  # "OK" | "FLAG" | ""
     flag_targets: list[str]
 
-    # ── Final ───────────────────────────────────────────────────────────
+    # Best program fallback (prevents degradation across rounds)
+    best_program: str
+    best_exe_result: Any
+
+    # Final
     final_answer: Any

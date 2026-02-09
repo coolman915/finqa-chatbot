@@ -4,10 +4,8 @@ SUMMARIZER_SYSTEM = """You are a financial reasoning agent that generates DSL pr
 
 You will be given:
 1. A QUESTION about financial data
-2. A SHARED LOG containing evidence gathered by specialized agents:
-   - LOOKUP entries: table cell facts (row, column, value)
-   - QUOTE entries: relevant text passages with numbers
-   - KG_TRIPLET entries: structured knowledge graph facts (subject, relation, object)
+2. A TABLE with rows and columns
+3. A SHARED LOG containing evidence gathered by specialized agents
 
 Using this evidence, write a DSL program that computes the answer.
 
@@ -17,16 +15,61 @@ Available operations:
 - greater(arg1, arg2): returns "yes"/"no"
 - table_sum(row_name, NONE), table_average(row_name, NONE), table_max(row_name, NONE), table_min(row_name, NONE)
 
-Constants: const_1, const_2, ..., const_10, const_100, const_1000, ..., const_1000000000, const_m1
+Constants: const_1, const_2, const_3, const_4, const_5, const_6, const_7, const_8, const_9, const_10, const_100, const_1000, const_m1
 References: #0, #1, etc. for previous step results.
 
+REASONING STEPS (think through these, then output ONLY the program on the last line):
+1. Identify which ROW(S) in the table the question is about. Match keywords in the question to row names.
+2. Identify which COLUMN(S) / time periods are relevant.
+3. Extract the exact numeric values from those cells.
+4. Determine the operation(s) needed.
+5. Write the program.
+
 RULES:
-1. Output ONLY the program. No explanation.
-2. Use exact numbers from the evidence (without commas).
-3. For percentages like "27.3%", use "27.3%" as the argument.
-4. For percent change: subtract(new, old), divide(#0, old) — do NOT multiply by const_100.
-5. Use the simplest program that correctly answers the question.
+- On the LAST line, output ONLY the program. No explanation after it.
+- Use exact numbers from the evidence (without commas).
+- For percentages like "27.3%", use the raw number "27.3" (NOT "27.3%") unless subtracting two percentages.
+- For percent change: subtract(new, old), divide(#0, old).
+- "increased as much as" means: compute the increase (subtract), then add it to the later value.
+- "decline" or "decrease" as a percentage: subtract(old, new), divide(#0, old).
+- Focus ONLY on the specific row mentioned in the question, not totals or other rows.
+- When a question asks "what percentage of X is Y", use divide(Y, X).
+- If the table shows a breakdown of changes (volume, price, other), sum the ABSOLUTE values of the components — do NOT subtract the year totals.
+- Every program step MUST be an operation: op(arg1, arg2). Never output bare numbers without an operation.
 """
+
+SUMMARIZER_FEW_SHOT = [
+    {
+        "question": "what is the average payment volume per transaction for american express?",
+        "table": "| company | payments volume ( billions ) | total transactions ( billions ) |\n| visa | $ 2457 | 50.3 |\n| mastercard | 1697 | 27.0 |\n| american express | 637 | 5.0 |",
+        "reasoning": "Row: american express. Columns: payments volume=637, transactions=5.0.\ndivide(637, 5.0)",
+    },
+    {
+        "question": "what was the change in millions of operating income from 2016 to 2017?",
+        "table": "| ( in millions ) | 2017 | 2016 |\n| operating income | 11503 | 10815 |",
+        "reasoning": "Row: operating income. Values: 2017=11503, 2016=10815. Change = new - old.\nsubtract(11503, 10815)",
+    },
+    {
+        "question": "if costs increased in 2008 as much as in 2007, what would the 2008 total be?",
+        "table": "| ( in millions ) | 2007 | 2006 | 2005 |\n| development costs | 1654 | 1251 | 1030 |\n| other costs | 5000 | 4000 | 3000 |",
+        "reasoning": "Row: development costs (mentioned in question). Values: 2007=1654, 2006=1251. Increase in 2007: 1654-1251=403. 2008 total: 1654+403=2057.\nsubtract(1654, 1251), add(#0, 1654)",
+    },
+    {
+        "question": "what is the decline from current year payments to the following year?",
+        "table": "| fiscal year | operating leases |\n| 2007 | 1703 |\n| 2008 | 1371 |\n| 2009 | 1035 |\n| total | $ 4819 |",
+        "reasoning": "Current year=2007 (first row)=1703. Following year=2008=1371. Decline as percentage: (1703-1371)/1703.\nsubtract(1703, 1371), divide(#0, 1703)",
+    },
+    {
+        "question": "what is the percent change in total net revenue from 2005 to 2006?",
+        "table": "| year | net revenue |\n| 2006 | 7.0 |\n| 2005 | 6.3 |",
+        "reasoning": "Row: net revenue. Values: 2006=7.0, 2005=6.3. Percent change: (new-old)/old.\nsubtract(7.0, 6.3), divide(#0, 6.3)",
+    },
+    {
+        "question": "what percentage of total purchase commitments are due after 2014?",
+        "table": "| year | amount |\n| 2011 | 5000 |\n| 2012 | 8000 |\n| 2013 | 6524 |\n| after 2014 | 25048 |\n| total | 44572 |",
+        "reasoning": "Row: after 2014 = 25048. Total = 44572. Percentage = part/whole.\ndivide(25048, 44572)",
+    },
+]
 
 SUMMARIZER_USER_TEMPLATE = """Question: {question}
 
@@ -36,4 +79,4 @@ Table:
 Shared Log (evidence from specialized agents):
 {log_text}
 
-Write the DSL program:"""
+Identify the relevant row(s) and values, then write the DSL program:"""

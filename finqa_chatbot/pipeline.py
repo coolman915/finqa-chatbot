@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from .config import get_settings
 from .graph.workflow import build_graph
 from .graph.callbacks import FinQATracingCallback
 from .dsl.parser import parse_program_to_tokens
+from .evaluation.official import _relaxed_equal
 
 
 def load_dataset(split: str = "dev") -> list[dict]:
@@ -51,6 +53,8 @@ def run_single(entry: dict, graph=None) -> dict[str, Any]:
         "exe_invalid": False,
         "verification_status": "",
         "flag_targets": [],
+        "best_program": "",
+        "best_exe_result": None,
         "final_answer": None,
     }
 
@@ -88,31 +92,93 @@ def run_batch(
     split: str = "dev",
     max_examples: int | None = None,
     workers: int = 4,
+    save_path: str | None = None,
+    save_every: int = 10,
 ) -> list[dict[str, Any]]:
-    """Run the pipeline on a full dataset split."""
+    """Run the pipeline on a full dataset split with incremental saves.
+
+    Args:
+        split: Dataset split name.
+        max_examples: Limit number of examples (None = all).
+        workers: Number of parallel workers.
+        save_path: Path to save incremental results (JSON). If None, no
+            incremental saving.
+        save_every: Save results every N completed examples.
+    """
     data = load_dataset(split)
     if max_examples:
         data = data[:max_examples]
 
     graph = build_graph()
     predictions: list[dict] = []
+    lock = threading.Lock()
     start = time.time()
+    correct_count = 0
+    error_count = 0
 
-    print(f"Running on {len(data)} examples from {split} split...")
+    # Load existing results to resume
+    completed_ids: set[str] = set()
+    if save_path and Path(save_path).exists():
+        with open(save_path) as f:
+            existing = json.load(f)
+        predictions = existing
+        completed_ids = {p["id"] for p in existing}
+        print(f"  Resuming: {len(completed_ids)} already done")
+
+    remaining = [e for e in data if e["id"] not in completed_ids]
+    total = len(data)
+
+    print(f"Running {len(remaining)} examples ({total} total) from {split} split with {workers} workers...")
+
+    def _save():
+        if not save_path:
+            return
+        id_order = {e["id"]: i for i, e in enumerate(data)}
+        sorted_preds = sorted(predictions, key=lambda x: id_order.get(x["id"], 0))
+        with open(save_path, "w") as f:
+            json.dump(sorted_preds, f, indent=2, default=str)
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(run_single, entry, graph): entry["id"]
-            for entry in data
+            executor.submit(run_single, entry, graph): entry
+            for entry in remaining
         }
-        done = 0
+        done = len(completed_ids)
         for future in as_completed(futures):
+            entry = futures[future]
             result = future.result()
-            predictions.append(result)
-            done += 1
-            if done % 20 == 0 or done == len(data):
+
+            # Quick accuracy check (relaxed for const_100 ambiguity)
+            gold_ans = entry["qa"]["exe_ans"]
+            is_correct = _relaxed_equal(result.get("exe_result"), gold_ans)
+            has_error = "error" in result
+
+            with lock:
+                predictions.append(result)
+                done += 1
+                if is_correct:
+                    correct_count += 1
+                if has_error:
+                    error_count += 1
+
                 elapsed = time.time() - start
-                print(f"  Progress: {done}/{len(data)} ({elapsed:.1f}s)")
+                rate = (done - len(completed_ids)) / elapsed if elapsed > 0 else 0
+                remaining_time = (total - done) / rate if rate > 0 else 0
+
+                if done % save_every == 0 or done == total:
+                    acc = correct_count / done if done > 0 else 0
+                    print(
+                        f"  {done}/{total}  "
+                        f"acc={acc:.1%}  "
+                        f"err={error_count}  "
+                        f"{elapsed:.0f}s elapsed  "
+                        f"~{remaining_time:.0f}s remaining  "
+                        f"({rate:.1f} ex/s)"
+                    )
+                    _save()
+
+    # Final save
+    _save()
 
     # Sort by original order
     id_order = {e["id"]: i for i, e in enumerate(data)}

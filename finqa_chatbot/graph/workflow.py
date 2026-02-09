@@ -39,7 +39,7 @@ def _executor_node(state: GraphState) -> dict:
     tokens = parse_program_to_tokens(program_str)
     invalid_flag, result = eval_program(tokens, state["table"])
 
-    return {
+    updates = {
         "program_tokens": tokens,
         "exe_result": result,
         "exe_invalid": bool(invalid_flag),
@@ -52,10 +52,35 @@ def _executor_node(state: GraphState) -> dict:
         )],
     }
 
+    # Track best valid program across rounds (fallback on degradation)
+    if not invalid_flag and result != "n/a":
+        best = state.get("best_program", "")
+        if not best:
+            updates["best_program"] = program_str
+            updates["best_exe_result"] = result
+
+    return updates
+
 
 def _finalize_node(state: GraphState) -> dict:
-    """Set the final answer."""
-    return {"final_answer": state.get("exe_result", "n/a")}
+    """Set the final answer, falling back to best program if current is invalid."""
+    exe_result = state.get("exe_result", "n/a")
+    program = state.get("selected_program", "")
+    exe_invalid = state.get("exe_invalid", False)
+
+    # Fall back to best program if current round degraded
+    if (not program or exe_invalid or exe_result == "n/a"):
+        best_prog = state.get("best_program", "")
+        best_result = state.get("best_exe_result")
+        if best_prog and best_result is not None:
+            return {
+                "selected_program": best_prog,
+                "exe_result": best_result,
+                "exe_invalid": False,
+                "final_answer": best_result,
+            }
+
+    return {"final_answer": exe_result}
 
 
 def build_graph() -> StateGraph:
