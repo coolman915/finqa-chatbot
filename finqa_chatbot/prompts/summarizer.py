@@ -39,6 +39,9 @@ RULES:
 - If the table shows a breakdown of changes (volume, price, other), sum the ABSOLUTE values of the components — do NOT subtract the year totals.
 - Pay attention to units in column headers (millions, thousands, billions). Use the raw table values directly — do NOT add extra unit conversions unless the question explicitly asks for a different unit.
 - Every program step MUST be an operation: op(arg1, arg2). Never output bare numbers without an operation.
+- IMPORTANT: If the question asks "what was the change/difference/net change in X" (absolute amount), use ONLY subtract(new, old). Do NOT divide — the answer is the raw difference, not a percentage.
+- If the question asks for a percentage result (e.g., "what percentage", "as a percent", "% of"), the final answer should be in percentage points (e.g., 10.8, not 0.108). If your computation gives a decimal ratio, multiply by const_100.
+- "what was the change in X as a percentage of Y" requires TWO steps: subtract for the change, then divide by Y. Do not skip the divide.
 """
 
 SUMMARIZER_FEW_SHOT = [
@@ -81,6 +84,16 @@ SUMMARIZER_FEW_SHOT = [
         "question": "what is the roi of an investment in the index from 2007 to 2008?",
         "table": "| year | index value |\n| 2007 | 100.00 |\n| 2008 | 78.50 |\n| 2009 | 92.30 |",
         "reasoning": "Investment starts at 100. End value=78.50. ROI = (end-start)/start.\nsubtract(78.50, const_100), divide(#0, const_100)",
+    },
+    {
+        "question": "what was the change in total revenue from 2015 to 2016?",
+        "table": "| ( in millions ) | 2016 | 2015 |\n| total revenue | 4250 | 3980 |",
+        "reasoning": "Row: total revenue. Values: 2016=4250, 2015=3980. Question asks for the change (absolute amount), NOT percentage. Answer = new - old.\nsubtract(4250, 3980)",
+    },
+    {
+        "question": "what percentage of total obligations are due in 2012?",
+        "table": "| year | amount |\n| 2011 | 1200 |\n| 2012 | 3500 |\n| total | 14000 |",
+        "reasoning": "Row: 2012 = 3500. Total = 14000. Percentage = part/whole, then multiply by 100 for percentage points.\ndivide(3500, 14000), multiply(#0, const_100)",
     },
 ]
 

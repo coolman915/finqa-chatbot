@@ -96,6 +96,12 @@ def parse_program_to_tokens(program_str: str) -> list[str]:
             program_str = line
             break
 
+    # Strip double quotes from table operation arguments
+    program_str = program_str.replace('"', '')
+    # Normalize NONE → none (model sometimes generates uppercase)
+    program_str = program_str.replace(', NONE)', ', none)')
+    program_str = program_str.replace(',NONE)', ', none)')
+
     # Unnest if needed
     program_str = unnest_program(program_str)
 

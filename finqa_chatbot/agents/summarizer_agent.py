@@ -68,6 +68,24 @@ def summarizer_node(state: GraphState) -> dict:
         log_text=log_text,
     )
 
+    # On retry rounds, include previous attempt and error for self-correction
+    round_number = state.get("round_number", 1)
+    if round_number > 1:
+        prev_program = state.get("selected_program", "")
+        verification_status = state.get("verification_status", "")
+        # Extract issues from the log (latest FLAG entry)
+        prev_issues = ""
+        for entry in reversed(log):
+            if entry.entry_type == EntryType.FLAG:
+                prev_issues = entry.content
+                break
+        if prev_program:
+            user_content += (
+                f"\n\nPREVIOUS ATTEMPT (round {round_number - 1}): {prev_program}"
+                f"\nISSUE: {prev_issues or verification_status}"
+                f"\nGenerate a DIFFERENT and CORRECT program."
+            )
+
     # Build messages with few-shot (chain-of-thought reasoning examples)
     messages = [SystemMessage(content=SUMMARIZER_SYSTEM)]
     for ex in SUMMARIZER_FEW_SHOT:
