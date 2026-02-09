@@ -33,8 +33,11 @@ RULES:
 - "increased as much as" means: compute the increase (subtract), then add it to the later value.
 - "decline" or "decrease" as a percentage: subtract(old, new), divide(#0, old).
 - Focus ONLY on the specific row mentioned in the question, not totals or other rows.
-- When a question asks "what percentage of X is Y", use divide(Y, X).
+- When a question asks "what percentage of X is Y" or "what portion", use divide(Y, X).
+- When a question asks "what was the ratio of A to B", use divide(A, B).
+- "by how much did X increase/decrease" usually means the percentage change: subtract then divide by base.
 - If the table shows a breakdown of changes (volume, price, other), sum the ABSOLUTE values of the components — do NOT subtract the year totals.
+- Pay attention to units in column headers (millions, thousands, billions). Use the raw table values directly — do NOT add extra unit conversions unless the question explicitly asks for a different unit.
 - Every program step MUST be an operation: op(arg1, arg2). Never output bare numbers without an operation.
 """
 
@@ -68,6 +71,16 @@ SUMMARIZER_FEW_SHOT = [
         "question": "what percentage of total purchase commitments are due after 2014?",
         "table": "| year | amount |\n| 2011 | 5000 |\n| 2012 | 8000 |\n| 2013 | 6524 |\n| after 2014 | 25048 |\n| total | 44572 |",
         "reasoning": "Row: after 2014 = 25048. Total = 44572. Percentage = part/whole.\ndivide(25048, 44572)",
+    },
+    {
+        "question": "what was the total balance for 2013 and 2012?",
+        "table": "| ( in millions ) | 2013 | 2012 |\n| residential mortgages | 1356 | 2220 |\n| commercial | 4500 | 3800 |",
+        "reasoning": "Row: residential mortgages. Values: 2013=1356, 2012=2220. Total = sum of both years.\nadd(1356, 2220)",
+    },
+    {
+        "question": "what is the roi of an investment in the index from 2007 to 2008?",
+        "table": "| year | index value |\n| 2007 | 100.00 |\n| 2008 | 78.50 |\n| 2009 | 92.30 |",
+        "reasoning": "Investment starts at 100. End value=78.50. ROI = (end-start)/start.\nsubtract(78.50, const_100), divide(#0, const_100)",
     },
 ]
 

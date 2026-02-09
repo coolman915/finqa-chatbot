@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
@@ -54,18 +52,6 @@ def _extract_program(text: str) -> str:
     return result
 
 
-def _strip_trailing_multiply_100(program: str) -> str:
-    """Remove trailing multiply(#N, const_100) — FinQA gold answers are decimals."""
-    program = program.strip()
-    # Match: ..., multiply(#N, const_100) at the end
-    m = re.match(r'^(.+),\s*multiply\(#\d+,\s*const_100\)\s*$', program)
-    if m:
-        return m.group(1).strip()
-    # Match: multiply(X, const_100) as the entire program (e.g., single-step percentage)
-    # Don't strip this — it's intentional
-    return program
-
-
 def summarizer_node(state: GraphState) -> dict:
     """Generate a DSL program using temp=0 deterministic reasoning."""
     settings = get_settings()
@@ -91,8 +77,6 @@ def summarizer_node(state: GraphState) -> dict:
         messages.append(AIMessage(content=ex["reasoning"]))
     messages.append(HumanMessage(content=user_content))
 
-    # Deterministic generation (temp=0) — matches DeALOG paper approach.
-    # Verification + re-engagement handles errors instead of self-consistency.
     llm = ChatOpenAI(
         model=settings.model_name,
         temperature=0.0,

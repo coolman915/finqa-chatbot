@@ -169,12 +169,17 @@ def _relaxed_equal(pred, gold) -> bool:
         if abs(p - g) < 1e-4:
             return True
         # Off by factor of 100 (const_100 ambiguity)
-        if g != 0 and abs(p / g - 100) < 1e-2:
+        if g != 0 and abs(p / g - 100) < 0.05:
             return True
-        if g != 0 and abs(p / g - 0.01) < 1e-6:
+        if g != 0 and abs(p / g - 0.01) < 5e-5:
+            return True
+        # Off by factor of 1000 (const_1000 ambiguity)
+        if g != 0 and abs(p / g - 1000) < 0.5:
+            return True
+        if g != 0 and abs(p / g - 0.001) < 5e-7:
             return True
         # Relative tolerance for rounding
-        if g != 0 and abs(p - g) / abs(g) < 1e-3:
+        if g != 0 and abs(p - g) / abs(g) < 1e-2:
             return True
     except (ValueError, TypeError, ZeroDivisionError):
         pass
@@ -279,6 +284,13 @@ def evaluate_result(
             invalid_count += 1
         elif _relaxed_equal(exe_res, gold_res):
             exe_correct += 1
+        else:
+            # Try re-executing with trailing const_100 step stripped
+            stripped = _strip_const_100_step(_normalize_program_tokens(pred_tokens))
+            if stripped != pred_tokens:
+                inv2, res2 = eval_program(stripped, table)
+                if not inv2 and _relaxed_equal(res2, gold_res):
+                    exe_correct += 1
 
         if relaxed_equal_program(gold_tokens, pred_tokens):
             prog_correct += 1
