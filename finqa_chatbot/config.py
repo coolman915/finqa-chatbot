@@ -48,5 +48,11 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
-    """Return a cached Settings instance."""
-    return Settings()
+    """Return a cached Settings instance and export LangSmith env vars."""
+    s = Settings()
+    # LangChain auto-tracing reads from os.environ, so propagate our config
+    if s.langchain_api_key:
+        os.environ.setdefault("LANGCHAIN_API_KEY", s.langchain_api_key)
+    os.environ.setdefault("LANGCHAIN_TRACING_V2", str(s.langchain_tracing_v2).lower())
+    os.environ.setdefault("LANGCHAIN_PROJECT", s.langchain_project)
+    return s

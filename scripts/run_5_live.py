@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.chdir(str(Path(__file__).resolve().parent.parent))
-os.environ["LANGCHAIN_TRACING_V2"] = "false"
+# LangSmith tracing controlled by .env (LANGCHAIN_TRACING_V2)
 
 from finqa_chatbot.config import get_settings
 from finqa_chatbot.pipeline import load_dataset, run_single
