@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..schema import LogEntry, EntryType
 from .state import GraphState
 
-ALL_RETRIEVAL_AGENTS = ["table_agent", "context_agent", "kg_agent"]
+ALL_RETRIEVAL_AGENTS = ["table_agent", "context_agent"]
 
 
 def init_node(state: GraphState) -> dict:

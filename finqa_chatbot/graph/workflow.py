@@ -13,7 +13,6 @@ from .scheduler import (
 )
 from ..agents.table_agent import table_agent_node
 from ..agents.context_agent import context_agent_node
-from ..agents.kg_agent import kg_agent_node
 from ..agents.summarizer_agent import summarizer_node
 from ..agents.verification_agent import verification_node
 
@@ -93,7 +92,6 @@ def build_graph() -> StateGraph:
     graph.add_node("scheduler", scheduler_node)
     graph.add_node("table_agent", table_agent_node)
     graph.add_node("context_agent", context_agent_node)
-    graph.add_node("kg_agent", kg_agent_node)
     graph.add_node("summarizer", summarizer_node)
     graph.add_node("executor", _executor_node)
     graph.add_node("verifier", verification_node)
@@ -110,14 +108,12 @@ def build_graph() -> StateGraph:
         {
             "table_agent": "table_agent",
             "context_agent": "context_agent",
-            "kg_agent": "kg_agent",
         },
     )
 
     # All retrieval agents converge to summarizer
     graph.add_edge("table_agent", "summarizer")
     graph.add_edge("context_agent", "summarizer")
-    graph.add_edge("kg_agent", "summarizer")
 
     # Summarizer → Executor → Verifier
     graph.add_edge("summarizer", "executor")
