@@ -32,24 +32,34 @@ def _format_log(log: list[LogEntry]) -> str:
 
 
 def _extract_program(text: str) -> str:
-    """Extract the DSL program from LLM output (last line with an operation)."""
+    """Extract the DSL program from LLM output.
+
+    Handles both single-line programs and multi-line outputs where each
+    step is on a separate line.
+    """
     text = text.strip().strip("`").strip()
     if text.startswith("Program:"):
         text = text[len("Program:"):].strip()
 
-    best_line = None
+    # Collect all lines that contain a DSL operation
+    op_lines = []
     for line in text.split("\n"):
         line = line.strip()
         if line and any(op + "(" in line for op in ALL_OPS):
-            best_line = line
+            op_lines.append(line)
 
-    result = best_line or text
-
-    # Validate: if result has no operation, it's not a valid program
-    if not any(op + "(" in result for op in ALL_OPS):
+    if not op_lines:
         return ""
 
-    return result
+    # If the last op line already contains commas joining multiple steps,
+    # it's a complete single-line program — use it directly
+    last_line = op_lines[-1]
+    op_count_last = sum(1 for op in ALL_OPS if op + "(" in last_line)
+    if op_count_last >= len(op_lines) or len(op_lines) == 1:
+        return last_line
+
+    # Otherwise, join all operation lines into a single program
+    return ", ".join(op_lines)
 
 
 def summarizer_node(state: GraphState) -> dict:

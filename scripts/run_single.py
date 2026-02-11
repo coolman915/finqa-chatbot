@@ -3,10 +3,15 @@
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Ensure correct .env is loaded before any other imports
+_project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_project_root))
+from dotenv import load_dotenv
+load_dotenv(_project_root / ".env", override=True)
 
 from finqa_chatbot.config import get_settings
 from finqa_chatbot.pipeline import load_dataset, run_single
@@ -39,6 +44,8 @@ def main():
     print(f"Gold program: {entry['qa']['program']}")
     print(f"Gold answer: {entry['qa']['exe_ans']}")
     print(f"Model: {settings.model_name}")
+    print(f"Max rounds: {settings.max_rounds}")
+    print(f"API key: ...{settings.openai_api_key[-10:]}")
     print("-" * 60)
 
     result = run_single(entry)

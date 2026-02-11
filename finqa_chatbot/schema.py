@@ -11,13 +11,13 @@ from typing import Annotated, Any, TypedDict
 # ── Log entry types (DeALOG shared-log protocol) ───────────────────────
 
 class EntryType(str, Enum):
-    LOOKUP = "LOOKUP"
-    QUOTE = "QUOTE"
-    KG_TRIPLET = "KG_TRIPLET"
-    SUMMARY = "SUMMARY"
-    ANSWER = "ANSWER"
-    FLAG = "FLAG"
-    OK = "OK"
+    LOOKUP = "LOOKUP"           # table data
+    QUOTE = "QUOTE"             # text passages
+    KG_TRIPLET = "KG_TRIPLET"   # knowledge graph
+    SUMMARY = "SUMMARY"         # generated program
+    ANSWER = "ANSWER"           # execution result
+    FLAG = "FLAG"               # verification
+    OK = "OK"                   # verification
 
 
 @dataclass

@@ -7,15 +7,18 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-os.chdir(str(Path(__file__).resolve().parent.parent))
-# LangSmith tracing controlled by .env (LANGCHAIN_TRACING_V2)
+_project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_project_root))
+os.chdir(str(_project_root))
+
+# Ensure correct .env is loaded before any other imports
+from dotenv import load_dotenv
+load_dotenv(_project_root / ".env", override=True)
 
 from finqa_chatbot.config import get_settings
 from finqa_chatbot.pipeline import load_dataset
 from finqa_chatbot.agents.table_agent import table_agent_node
 from finqa_chatbot.agents.context_agent import context_agent_node
-from finqa_chatbot.agents.kg_agent import kg_agent_node
 from finqa_chatbot.agents.summarizer_agent import summarizer_node
 from finqa_chatbot.agents.verification_agent import verification_node
 from finqa_chatbot.dsl.executor import eval_program
@@ -30,9 +33,15 @@ def banner(title):
     print(f"{'='*70}")
 
 
+import argparse
+
 settings = get_settings()
 data = load_dataset("dev")
-entry = data[5]  # PM/2017 — "what was the change in operating income from 2016 to 2017?"
+
+parser = argparse.ArgumentParser(description="Run one example through the full pipeline")
+parser.add_argument("--index", type=int, default=5, help="Example index (default: 5)")
+args = parser.parse_args()
+entry = data[args.index]
 
 # ── Show the input ──────────────────────────────────────────────────
 banner("INPUT")
@@ -72,7 +81,7 @@ sched_result = scheduler_node(state)
 state.update(sched_result)
 print(f"  Round: {state['round_number']}")
 print(f"  Active agents: {state['active_agents']}")
-print(f"  → Will fan out to: TableAgent, ContextAgent, KGAgent in parallel")
+print(f"  → Will fan out to: TableAgent, ContextAgent in parallel")
 
 # ── STEP 2: TableAgent ─────────────────────────────────────────────
 banner("2a — TABLE AGENT (deterministic, no LLM)")
@@ -97,18 +106,6 @@ state["log"] = state["log"] + ca_result["log"]
 print(f"  Time: {ca_time:.3f}s")
 print(f"  Produced {len(ca_result['log'])} QUOTE entries")
 for e in ca_result["log"][:3]:
-    print(f"    {e.to_text()[:120]}")
-
-# ── STEP 2c: KGAgent ───────────────────────────────────────────────
-banner("2c — KG AGENT (LLM call to extract knowledge graph triplets)")
-print(f"  Calling {settings.model_name} to extract KG triplets...")
-t0 = time.time()
-kg_result = kg_agent_node(state)
-kg_time = time.time() - t0
-state["log"] = state["log"] + kg_result["log"]
-print(f"  Time: {kg_time:.1f}s")
-print(f"  Produced {len(kg_result['log'])} KG_TRIPLET entries")
-for e in kg_result["log"]:
     print(f"    {e.to_text()[:120]}")
 
 # ── Show accumulated shared log ────────────────────────────────────
