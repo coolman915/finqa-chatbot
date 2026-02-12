@@ -67,11 +67,12 @@ class MongoStore:
     def insert_dataset_entries(self, entries: list[dict], split: str) -> int:
         """Bulk upsert dataset entries. Returns number of upserted/updated docs."""
         ops = []
-        for entry in entries:
+        for idx, entry in enumerate(entries):
             qa = entry.get("qa", {})
             doc = {
                 "_id": entry["id"],
                 "split": split,
+                "list_number": idx,
                 "question": qa.get("question", ""),
                 "answer": qa.get("answer", ""),
                 "program": qa.get("program", ""),
@@ -89,11 +90,12 @@ class MongoStore:
         return 0
 
     def get_dataset(self, split: str) -> list[dict]:
-        """Reconstruct original entry format from MongoDB docs."""
+        """Reconstruct original entry format from MongoDB docs, sorted by list_number."""
         entries = []
-        for doc in self.dataset.find({"split": split}):
+        for doc in self.dataset.find({"split": split}).sort("list_number", 1):
             entries.append({
                 "id": doc["_id"],
+                "list_number": doc.get("list_number", 0),
                 "qa": {
                     "question": doc.get("question", ""),
                     "answer": doc.get("answer", ""),
