@@ -15,7 +15,7 @@ Available operations:
 - greater(arg1, arg2): returns "yes"/"no"
 - table_sum(row_name, NONE), table_average(row_name, NONE), table_max(row_name, NONE), table_min(row_name, NONE)
 
-Constants: const_1, const_2, const_3, const_4, const_5, const_6, const_7, const_8, const_9, const_10, const_100, const_1000, const_m1
+Constants: const_1, const_2, const_3, const_4, const_5, const_6, const_7, const_8, const_9, const_10, const_100, const_1000, const_10000, const_100000, const_1000000, const_m1
 References: #0, #1, etc. for previous step results.
 
 REASONING STEPS (think through these, then output ONLY the program on the last line):
@@ -37,7 +37,10 @@ RULES:
 - When a question asks "what was the ratio of A to B", use divide(A, B).
 - "by how much did X increase/decrease" usually means the percentage change: subtract then divide by base.
 - If the table shows a breakdown of changes (volume, price, other), sum the ABSOLUTE values of the components — do NOT subtract the year totals.
-- Pay attention to units in column headers or surrounding text (millions, thousands, billions). Use the raw table values directly — do NOT add extra unit conversions unless the question explicitly asks for a different unit. HOWEVER, if a value from the text is in DIFFERENT units than the table (e.g., text says "$30.2 million" but table is "in thousands"), you MUST convert to match: multiply(30.2, const_1000) to get thousands, or divide by const_1000 to get millions.
+- Pay attention to units in column headers or surrounding text (millions, thousands, billions). Use the raw table values directly — do NOT add extra unit conversions unless needed. HOWEVER:
+  - If a value from the text is in DIFFERENT units than the table (e.g., text says "$30.2 million" but table is "in thousands"), you MUST convert to match: multiply(30.2, const_1000) to get thousands.
+  - If the question asks for the answer "in millions" but the source values are in raw units (or vice versa), convert using divide(value, const_1000000) or multiply(value, const_1000000).
+  - If computing a per-unit cost (e.g., "cost per car") and the dollar amount is in millions, convert to raw dollars first: multiply(amount, const_1000000), then divide.
 - Every program step MUST be an operation: op(arg1, arg2). Never output bare numbers without an operation.
 - STEP REFERENCES: #0 is step 0's result, #1 is step 1's result, etc. When adding multiply(#N, const_100) at the end, N must be the LAST step's index (e.g., for a 3-step program: step0, step1, multiply(#1, const_100) — NOT #0).
 - IMPORTANT: If the question asks "what was the change/difference/net change in X" (absolute amount), use ONLY subtract(new, old). Do NOT divide — the answer is the raw difference, not a percentage.
