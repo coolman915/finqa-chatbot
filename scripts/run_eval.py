@@ -6,6 +6,13 @@ Usage:
     python scripts/run_eval.py --split dev --max_examples 100 --workers 12
     python scripts/run_eval.py --split dev --workers 16           # all 883
     python scripts/run_eval.py --split dev --resume               # resume interrupted run
+    python scripts/run_eval.py --split dev --max_examples 20 --llm-eval  # with LLM failure evaluation
+
+LLM evaluation (--llm-eval):
+    When enabled, failed predictions are evaluated by gpt-4o which:
+    1. Judges whether the prediction is actually correct (alternate valid approach)
+    2. Classifies the failure reason (wrong_number, wrong_computation, sign_error, etc.)
+    Results are stored as llm_correct, failure_reason, llm_explanation in MongoDB.
 """
 
 import argparse
@@ -36,6 +43,8 @@ def main():
                         help="Output file for predictions JSON")
     parser.add_argument("--llm-judge", action="store_true",
                         help="Use LLM judge for prog_acc when exe passes but structural match fails")
+    parser.add_argument("--llm-eval", action="store_true",
+                        help="Run LLM evaluation on failed predictions (classifies failure reasons)")
     parser.add_argument("--start", type=int, default=None,
                         help="Start index (inclusive) for dataset slice")
     parser.add_argument("--end", type=int, default=None,
@@ -82,6 +91,7 @@ def main():
         save_path=out_file,
         save_every=10,
         data=gold_data,
+        llm_eval=args.llm_eval,
     )
 
     total_time = time.time() - start

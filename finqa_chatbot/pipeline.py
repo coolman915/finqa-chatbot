@@ -100,6 +100,7 @@ def run_batch(
     save_path: str | None = None,
     save_every: int = 10,
     data: list[dict] | None = None,
+    llm_eval: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Run the pipeline on a full dataset split with incremental saves.
 
@@ -197,6 +198,21 @@ def run_batch(
             gold_tokens = parse_program_to_tokens(gold_prog) if gold_prog else ["EOF"]
             is_prog_correct = relaxed_equal_program(gold_tokens, pred_tokens)
 
+            # LLM evaluation of failures
+            llm_eval_result = None
+            if llm_eval and (not is_exe_correct or not is_prog_correct):
+                from .evaluation.llm_eval import llm_evaluate_prediction
+                gold_entry = data_dict.get(result["id"])
+                if gold_entry:
+                    llm_eval_result = llm_evaluate_prediction(
+                        question=gold_entry["qa"]["question"],
+                        gold_program=gold_prog,
+                        pred_program=pred_prog,
+                        gold_answer=gold_ans,
+                        pred_answer=result.get("exe_result"),
+                        text_answer=text_answer,
+                    )
+
             # Insert prediction into MongoDB
             if store and run_id:
                 gold_entry = data_dict.get(result["id"])
@@ -205,6 +221,7 @@ def run_batch(
                         run_id, result, gold_entry,
                         split=split,
                         list_number=id_to_idx.get(result["id"]),
+                        llm_eval=llm_eval_result,
                     )
 
             with lock:

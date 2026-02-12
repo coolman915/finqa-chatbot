@@ -132,6 +132,23 @@ python scripts/run_eval.py --split dev --workers 8 --llm-judge
 python scripts/run_eval.py --split dev --resume --workers 8
 ```
 
+### LLM failure evaluation
+
+When predictions fail, an LLM (gpt-4o) can judge whether the prediction is actually correct (catches false negatives) and classify the failure reason.
+
+```bash
+# During pipeline — evaluate failures in real-time
+python scripts/run_eval.py --split dev --max_examples 20 --llm-eval
+
+# Post-processing — evaluate stored failures after the fact
+python scripts/query_results.py evaluate <run_id>
+
+# View failures with LLM classifications
+python scripts/query_results.py failures <run_id>
+```
+
+Failure categories: `correct_alternate`, `wrong_number`, `wrong_computation`, `sign_error`, `scale_error`, `missing_step`, `extra_step`, `wrong_approach`, `invalid_program`, `rounding_error`.
+
 ### Quick benchmarks
 
 ```bash
@@ -181,6 +198,7 @@ finqa-chatbot/
 │   │   └── parser.py           # Program string → token list parser
 │   ├── evaluation/
 │   │   ├── official.py         # exe_acc, prog_acc, relaxed matching, LLM judge
+│   │   ├── llm_eval.py         # LLM failure evaluation and classification (gpt-4o)
 │   │   ├── metrics.py          # Extended metrics and error breakdown
 │   │   └── langsmith_eval.py   # LangSmith evaluation dataset upload
 │   ├── graph/
@@ -202,6 +220,7 @@ finqa-chatbot/
 │   ├── run_5_live.py           # Quick 5-example benchmark
 │   ├── run_20_examples.py      # 20-example benchmark
 │   ├── build_embeddings_cache.py  # OpenAI embeddings cache builder
+│   ├── query_results.py           # MongoDB query CLI (runs, failures, evaluate)
 │   ├── analyze_failures_full.py   # Failure analysis script
 │   └── test_failures.py        # Targeted failure re-evaluation
 ├── tests/
@@ -234,5 +253,6 @@ finqa-chatbot/
 - **exe_acc**: Does the predicted program produce the correct numerical answer? Uses relaxed matching with sign tolerance, scale factor correction (10x/100x/1000x), and 5% relative tolerance (verified zero false positives on dev set).
 - **prog_acc**: Is the predicted program structurally equivalent to the gold program? Uses symbolic comparison, const_100 normalization, trailing-step stripping, and same-ops matching.
 - **LLM judge**: For cases where exe_acc passes but prog_acc fails, an LLM judges whether the programs are semantically equivalent.
+- **LLM failure evaluation**: For predictions that fail exe_acc or prog_acc, a gpt-4o call judges whether the prediction is actually correct (alternate valid approach) and classifies the failure reason into one of 10 categories. Available via `--llm-eval` flag or post-hoc via `query_results.py evaluate`.
 
 See [`docs/technical_report.md`](docs/technical_report.md) for the full technical report.

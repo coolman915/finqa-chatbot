@@ -176,6 +176,7 @@ class MongoStore:
         gold_entry: dict[str, Any],
         split: str = "",
         list_number: int | None = None,
+        llm_eval: dict | None = None,
     ) -> None:
         """Insert a single prediction with inline correctness evaluation."""
         try:
@@ -205,6 +206,9 @@ class MongoStore:
                 "gold_program": gold_prog,
                 "gold_answer": gold_ans,
                 "answer": text_answer,
+                "llm_correct": llm_eval.get("llm_correct") if llm_eval else None,
+                "failure_reason": llm_eval.get("failure_reason") if llm_eval else None,
+                "llm_explanation": llm_eval.get("llm_explanation") if llm_eval else None,
             }
             self.predictions.update_one(
                 {"run_id": run_id, "entry_id": prediction["id"]},
@@ -263,6 +267,19 @@ class MongoStore:
             result = self.predictions.bulk_write(ops, ordered=False)
             return result.upserted_count + result.modified_count
         return 0
+
+    def update_prediction_llm_eval(
+        self, run_id: str, entry_id: str, llm_eval: dict
+    ) -> None:
+        """Update a prediction with LLM evaluation results."""
+        self.predictions.update_one(
+            {"run_id": run_id, "entry_id": entry_id},
+            {"$set": {
+                "llm_correct": llm_eval.get("llm_correct"),
+                "failure_reason": llm_eval.get("failure_reason"),
+                "llm_explanation": llm_eval.get("llm_explanation"),
+            }},
+        )
 
     # ------------------------------------------------------------------
     # Queries

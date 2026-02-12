@@ -4,10 +4,19 @@
 Usage:
     python scripts/query_results.py runs                      # list recent runs
     python scripts/query_results.py run <run_id>              # show run details
-    python scripts/query_results.py failures <run_id>         # show failures for a run
+    python scripts/query_results.py failures <run_id>         # show failures with LLM eval details
     python scripts/query_results.py history <entry_id>        # show entry across runs
     python scripts/query_results.py best                      # show best run
     python scripts/query_results.py compare <id1> <id2>       # compare two runs
+    python scripts/query_results.py evaluate <run_id>         # run LLM evaluation on unevaluated failures
+
+LLM evaluation fields (stored per prediction in MongoDB):
+    llm_correct:     bool | None   — LLM's verdict (None = not yet evaluated)
+    failure_reason:  str | None    — Classification: correct_alternate, wrong_number,
+                                     wrong_computation, sign_error, scale_error,
+                                     missing_step, extra_step, wrong_approach,
+                                     invalid_program, rounding_error
+    llm_explanation: str | None    — Brief LLM explanation of why it failed
 """
 
 import argparse
@@ -21,6 +30,7 @@ from dotenv import load_dotenv
 load_dotenv(_project_root / ".env", override=True)
 
 from finqa_chatbot.storage import get_mongo_store
+from finqa_chatbot.evaluation.llm_eval import llm_evaluate_prediction
 
 
 def _pp(obj: dict | list) -> None:
@@ -79,6 +89,11 @@ def cmd_failures(store, args):
         print(f"    Exe result: {f.get('exe_result')}  Gold answer: {f.get('gold_answer')}")
         if f.get("error"):
             print(f"    Error: {f['error']}")
+        if f.get("failure_reason"):
+            llm_tag = "CORRECT" if f.get("llm_correct") else f["failure_reason"]
+            print(f"    LLM eval: {llm_tag}")
+            if f.get("llm_explanation"):
+                print(f"    Explanation: {f['llm_explanation']}")
         print()
 
 
@@ -157,6 +172,60 @@ def cmd_compare(store, args):
             print(f"    {eid}")
 
 
+def cmd_evaluate(store, args):
+    """Run LLM evaluation on failures for a given run."""
+    # Find predictions that failed and haven't been LLM-evaluated yet
+    query = {
+        "run_id": args.run_id,
+        "llm_correct": None,
+        "$or": [{"exe_correct": False}, {"prog_correct": False}],
+    }
+    preds = list(store.predictions.find(query))
+    if not preds:
+        print(f"No unevaluated failures found for run '{args.run_id}'.")
+        return
+
+    print(f"Found {len(preds)} unevaluated failures. Running LLM evaluation...")
+    print()
+
+    counts: dict[str, int] = {}
+    llm_correct_count = 0
+
+    for i, pred in enumerate(preds, 1):
+        entry_id = pred["entry_id"]
+        # Fetch gold entry from dataset collection
+        gold_doc = store.dataset.find_one({"_id": entry_id})
+        if not gold_doc:
+            print(f"  [{i}/{len(preds)}] {entry_id} — SKIP (gold entry not found)")
+            continue
+
+        result = llm_evaluate_prediction(
+            question=gold_doc.get("question", ""),
+            gold_program=gold_doc.get("program", ""),
+            pred_program=pred.get("raw_program", ""),
+            gold_answer=gold_doc.get("exe_ans"),
+            pred_answer=pred.get("exe_result"),
+            text_answer=gold_doc.get("answer", ""),
+        )
+
+        store.update_prediction_llm_eval(args.run_id, entry_id, result)
+
+        reason = result.get("failure_reason", "unknown")
+        counts[reason] = counts.get(reason, 0) + 1
+        if result.get("llm_correct"):
+            llm_correct_count += 1
+
+        status = "CORRECT" if result.get("llm_correct") else reason
+        print(f"  [{i}/{len(preds)}] {entry_id} — {status}")
+
+    print()
+    print(f"LLM evaluation complete: {len(preds)} predictions evaluated")
+    print(f"  LLM judged correct: {llm_correct_count}")
+    print(f"  Failure breakdown:")
+    for reason, count in sorted(counts.items(), key=lambda x: -x[1]):
+        print(f"    {reason}: {count}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Query FinQA evaluation results from MongoDB")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -181,6 +250,9 @@ def main():
     p_cmp.add_argument("run_id_2")
     p_cmp.add_argument("-v", "--verbose", action="store_true")
 
+    p_eval = sub.add_parser("evaluate", help="Run LLM evaluation on failures for a run")
+    p_eval.add_argument("run_id")
+
     args = parser.parse_args()
 
     store = get_mongo_store()
@@ -195,6 +267,7 @@ def main():
         "history": cmd_history,
         "best": cmd_best,
         "compare": cmd_compare,
+        "evaluate": cmd_evaluate,
     }
     commands[args.command](store, args)
     store.close()
