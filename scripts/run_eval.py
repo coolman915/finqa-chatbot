@@ -76,7 +76,7 @@ def main():
 
     start = time.time()
 
-    predictions = run_batch(
+    predictions, run_id = run_batch(
         split=args.split,
         workers=args.workers,
         save_path=out_file,
@@ -86,6 +86,8 @@ def main():
 
     total_time = time.time() - start
     print(f"\nCompleted in {total_time:.0f}s ({total_time/len(predictions):.1f}s avg)")
+    if run_id:
+        print(f"MongoDB run: {run_id}")
 
     # Save final predictions
     with open(out_file, "w") as f:
@@ -111,6 +113,15 @@ def main():
             print(f"  {k}: {v:.4f}")
         else:
             print(f"  {k}: {v}")
+
+    # Save results to MongoDB
+    if run_id:
+        from finqa_chatbot.storage import get_mongo_store
+        store = get_mongo_store()
+        if store:
+            store.finish_run(run_id, official, extended, total_time)
+            print(f"\nMongoDB run finalized: {run_id}")
+            store.close()
 
     # Save results
     results_file = output_dir / f"results_{args.split}{n_tag}.json"

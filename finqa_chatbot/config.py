@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     dataset_dir: Path = Path(__file__).resolve().parent.parent / "data"
     output_dir: Path = Path(__file__).resolve().parent.parent / "output"
 
+    # MongoDB
+    mongodb_uri: str = ""
+    mongodb_database: str = "finqa"
+
     # LangSmith
     langchain_tracing_v2: bool = True
     langchain_api_key: str = ""

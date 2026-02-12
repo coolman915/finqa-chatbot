@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,9 @@ from .graph.workflow import build_graph
 from .graph.callbacks import FinQATracingCallback
 from .dsl.parser import parse_program_to_tokens
 from .evaluation.official import _relaxed_equal, relaxed_equal_program
+from .storage import get_mongo_store
+
+logger = logging.getLogger(__name__)
 
 
 def load_dataset(split: str = "dev") -> list[dict]:
@@ -95,7 +100,7 @@ def run_batch(
     save_path: str | None = None,
     save_every: int = 10,
     data: list[dict] | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], str | None]:
     """Run the pipeline on a full dataset split with incremental saves.
 
     Args:
@@ -106,12 +111,38 @@ def run_batch(
             incremental saving.
         save_every: Save results every N completed examples.
         data: Pre-loaded/sliced dataset (overrides split + max_examples).
+
+    Returns:
+        Tuple of (predictions, run_id). run_id is None if MongoDB is not available.
     """
     if data is None:
         data = load_dataset(split)
         if max_examples:
             data = data[:max_examples]
 
+    settings = get_settings()
+
+    # MongoDB tracing (opt-in)
+    store = get_mongo_store()
+    run_id: str | None = None
+    if store:
+        now = datetime.now(timezone.utc)
+        run_id = f"run_{now.strftime('%Y%m%d_%H%M%S')}_{split}_{len(data)}"
+        store.create_run(
+            run_id=run_id,
+            split=split,
+            num_examples=len(data),
+            config={
+                "model": settings.model_name,
+                "max_rounds": settings.max_rounds,
+                "num_candidates": settings.num_candidates,
+                "temperature": settings.temperature,
+                "workers": workers,
+            },
+        )
+        logger.info("MongoDB run created: %s", run_id)
+
+    data_dict = {e["id"]: e for e in data}
     graph = build_graph()
     predictions: list[dict] = []
     lock = threading.Lock()
@@ -164,6 +195,12 @@ def run_batch(
             gold_tokens = parse_program_to_tokens(gold_prog) if gold_prog else ["EOF"]
             is_prog_correct = relaxed_equal_program(gold_tokens, pred_tokens)
 
+            # Insert prediction into MongoDB
+            if store and run_id:
+                gold_entry = data_dict.get(result["id"])
+                if gold_entry:
+                    store.insert_prediction(run_id, result, gold_entry)
+
             with lock:
                 predictions.append(result)
                 done += 1
@@ -199,4 +236,4 @@ def run_batch(
     id_order = {e["id"]: i for i, e in enumerate(data)}
     predictions.sort(key=lambda x: id_order.get(x["id"], 0))
 
-    return predictions
+    return predictions, run_id
