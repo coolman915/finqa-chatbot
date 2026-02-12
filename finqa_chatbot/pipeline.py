@@ -29,11 +29,19 @@ def load_dataset(split: str = "dev") -> list[dict]:
         return json.load(f)
 
 
-def run_single(entry: dict, graph=None) -> dict[str, Any]:
+def run_single(
+    entry: dict,
+    graph=None,
+    run_id: str | None = None,
+    store=None,
+) -> dict[str, Any]:
     """Run the full DeALOG pipeline on a single FinQA entry.
 
     Returns a prediction dict with ``id``, ``predicted`` (token list),
     ``raw_program``, ``exe_result``, and ``rounds_used``.
+
+    If *run_id* and *store* are provided, per-node trace steps are
+    flushed to MongoDB after the graph completes.
     """
     if graph is None:
         graph = build_graph()
@@ -63,7 +71,7 @@ def run_single(entry: dict, graph=None) -> dict[str, Any]:
         "final_answer": None,
     }
 
-    callback = FinQATracingCallback(entry_id=entry_id)
+    callback = FinQATracingCallback(entry_id=entry_id, run_id=run_id or "")
     config = {
         "callbacks": [callback],
         "metadata": {"entry_id": entry_id},
@@ -73,7 +81,7 @@ def run_single(entry: dict, graph=None) -> dict[str, Any]:
         result = graph.invoke(initial_state, config=config)
         program = result.get("selected_program", "")
         tokens = parse_program_to_tokens(program) if program else ["EOF"]
-        return {
+        prediction = {
             "id": entry_id,
             "predicted": tokens,
             "raw_program": program,
@@ -83,7 +91,7 @@ def run_single(entry: dict, graph=None) -> dict[str, Any]:
             "final_answer": result.get("final_answer", "n/a"),
         }
     except Exception as e:
-        return {
+        prediction = {
             "id": entry_id,
             "predicted": ["EOF"],
             "raw_program": "",
@@ -91,6 +99,17 @@ def run_single(entry: dict, graph=None) -> dict[str, Any]:
             "rounds_used": 0,
             "error": str(e),
         }
+
+    # Flush trace steps to MongoDB
+    if store and run_id:
+        try:
+            steps = callback.get_steps()
+            if steps:
+                store.insert_trace_steps(steps)
+        except Exception:
+            logger.debug("Failed to insert trace steps for %s", entry_id, exc_info=True)
+
+    return prediction
 
 
 def run_batch(
@@ -177,7 +196,7 @@ def run_batch(
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(run_single, entry, graph): entry
+            executor.submit(run_single, entry, graph, run_id, store): entry
             for entry in remaining
         }
         done = len(completed_ids)

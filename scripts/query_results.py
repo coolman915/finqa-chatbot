@@ -9,6 +9,8 @@ Usage:
     python scripts/query_results.py best                      # show best run
     python scripts/query_results.py compare <id1> <id2>       # compare two runs
     python scripts/query_results.py evaluate <run_id>         # run LLM evaluation on unevaluated failures
+    python scripts/query_results.py trace <run_id> <entry_id> # show step-by-step trace
+    python scripts/query_results.py node-stats <run_id>       # show per-node aggregate stats
 
 LLM evaluation fields (stored per prediction in MongoDB):
     llm_correct:     bool | None   — LLM's verdict (None = not yet evaluated)
@@ -206,6 +208,9 @@ def cmd_evaluate(store, args):
             gold_answer=gold_doc.get("exe_ans"),
             pred_answer=pred.get("exe_result"),
             text_answer=gold_doc.get("answer", ""),
+            table=gold_doc.get("table"),
+            pre_text=gold_doc.get("pre_text"),
+            post_text=gold_doc.get("post_text"),
         )
 
         store.update_prediction_llm_eval(args.run_id, entry_id, result)
@@ -224,6 +229,144 @@ def cmd_evaluate(store, args):
     print(f"  Failure breakdown:")
     for reason, count in sorted(counts.items(), key=lambda x: -x[1]):
         print(f"    {reason}: {count}")
+
+
+def _print_list(items: list, indent: str = "         ", max_items: int = 15) -> None:
+    """Print a list of strings, one per line, with truncation."""
+    for item in items[:max_items]:
+        text = str(item)
+        if len(text) > 200:
+            text = text[:200] + "..."
+        print(f"{indent}{text}")
+    if len(items) > max_items:
+        print(f"{indent}... and {len(items) - max_items} more")
+
+
+def cmd_trace(store, args):
+    """Show step-by-step trace for a single entry in a run."""
+    steps = store.get_trace(args.run_id, args.entry_id)
+    if not steps:
+        print(f"No trace found for run '{args.run_id}', entry '{args.entry_id}'.")
+        return
+
+    print(f"Trace for {args.entry_id} in {args.run_id} ({len(steps)} steps):")
+    print()
+
+    for s in steps:
+        node = s.get("node_name", "?")
+        dur = s.get("duration_ms")
+        rnd = s.get("round_number", 0)
+        dur_s = f"{dur:.0f}ms" if dur is not None else "n/a"
+        outputs = s.get("outputs", {})
+
+        print(f"  [{s.get('step_index', '?')}] {node}  (round {rnd}, {dur_s})")
+
+        # Node-specific display
+        if node == "init":
+            print(f"       question: {outputs.get('question', '')}")
+
+        elif node == "scheduler":
+            print(f"       round: {outputs.get('round_number')}  agents: {outputs.get('active_agents', [])}")
+
+        elif node == "table_agent":
+            n = outputs.get("num_lookups", 0)
+            print(f"       {n} lookups:")
+            _print_list(outputs.get("lookups", []))
+
+        elif node == "context_agent":
+            n = outputs.get("num_quotes", 0)
+            nums = outputs.get("numbers_found", [])
+            print(f"       {n} quotes, numbers found: {nums}")
+            _print_list(outputs.get("quotes", []))
+
+        elif node == "summarizer":
+            print(f"       program: {outputs.get('program', '')}")
+            candidates = outputs.get("candidates", [])
+            if len(candidates) > 1:
+                print(f"       candidates ({len(candidates)}):")
+                _print_list(candidates)
+            reasoning = outputs.get("reasoning", [])
+            if reasoning:
+                print(f"       reasoning:")
+                _print_list(reasoning)
+
+        elif node == "executor":
+            print(f"       result: {outputs.get('result')}  invalid: {outputs.get('invalid', False)}")
+            detail = outputs.get("detail", "")
+            if detail:
+                print(f"       detail: {detail}")
+
+        elif node == "verifier":
+            status = outputs.get("status", "")
+            print(f"       status: {status}")
+            issues = outputs.get("issues", [])
+            if issues:
+                print(f"       issues:")
+                _print_list(issues)
+            targets = outputs.get("flag_targets", [])
+            if targets:
+                print(f"       re-engage: {targets}")
+            detail = outputs.get("detail", [])
+            if detail:
+                _print_list(detail)
+
+        elif node == "finalize":
+            print(f"       final_answer: {outputs.get('final_answer')}")
+            prog = outputs.get("selected_program", "")
+            if prog:
+                print(f"       program: {prog}")
+            if outputs.get("used_fallback"):
+                print(f"       (used fallback from earlier round)")
+
+        else:
+            for k, v in outputs.items():
+                val = str(v)
+                if len(val) > 120:
+                    val = val[:120] + "..."
+                print(f"       {k}: {val}")
+
+        # LLM usage
+        lu = s.get("llm_usage")
+        if lu:
+            print(
+                f"       llm: {lu.get('num_calls', 0)} calls, "
+                f"{lu.get('total_tokens', 0)} tokens "
+                f"({lu.get('total_prompt_tokens', 0)}p + "
+                f"{lu.get('total_completion_tokens', 0)}c) "
+                f"[{lu.get('model', '')}]"
+            )
+
+        # Error
+        err = s.get("error")
+        if err:
+            print(f"       ERROR: {err.get('type', '?')}: {err.get('message', '')}")
+
+        print()
+
+
+def cmd_node_stats(store, args):
+    """Show per-node aggregate stats for a run."""
+    stats = store.get_node_stats(args.run_id)
+    if not stats:
+        print(f"No trace data found for run '{args.run_id}'.")
+        return
+
+    print(f"Node stats for {args.run_id}:")
+    print()
+    print(
+        f"  {'Node':<16} {'Count':>6} {'Avg ms':>8} {'Max ms':>8} "
+        f"{'Tokens':>8} {'Errors':>7}"
+    )
+    print("  " + "-" * 55)
+
+    for s in stats:
+        print(
+            f"  {s['node_name']:<16} {s['count']:>6} "
+            f"{s.get('avg_duration_ms', 0):>8.1f} "
+            f"{s.get('max_duration_ms', 0):>8.1f} "
+            f"{s.get('total_tokens', 0):>8} "
+            f"{s.get('error_count', 0):>7}"
+        )
 
 
 def main():
@@ -253,6 +396,13 @@ def main():
     p_eval = sub.add_parser("evaluate", help="Run LLM evaluation on failures for a run")
     p_eval.add_argument("run_id")
 
+    p_trace = sub.add_parser("trace", help="Show step-by-step trace for an entry")
+    p_trace.add_argument("run_id")
+    p_trace.add_argument("entry_id")
+
+    p_nstats = sub.add_parser("node-stats", help="Show per-node aggregate stats")
+    p_nstats.add_argument("run_id")
+
     args = parser.parse_args()
 
     store = get_mongo_store()
@@ -268,6 +418,8 @@ def main():
         "best": cmd_best,
         "compare": cmd_compare,
         "evaluate": cmd_evaluate,
+        "trace": cmd_trace,
+        "node-stats": cmd_node_stats,
     }
     commands[args.command](store, args)
     store.close()

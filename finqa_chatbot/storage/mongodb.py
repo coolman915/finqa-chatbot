@@ -27,6 +27,7 @@ class MongoStore:
         self.dataset = self._db["dataset"]
         self.runs = self._db["runs"]
         self.predictions = self._db["predictions"]
+        self.traces = self._db["traces"]
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -55,6 +56,16 @@ class MongoStore:
         self.predictions.create_index("entry_id")
         self.predictions.create_index(
             [("run_id", ASCENDING), ("exe_correct", ASCENDING)]
+        )
+
+        self.traces.create_index(
+            [("run_id", ASCENDING), ("entry_id", ASCENDING), ("step_index", ASCENDING)]
+        )
+        self.traces.create_index(
+            [("entry_id", ASCENDING), ("run_id", ASCENDING)]
+        )
+        self.traces.create_index(
+            [("run_id", ASCENDING), ("node_name", ASCENDING), ("duration_ms", DESCENDING)]
         )
 
     def close(self) -> None:
@@ -280,6 +291,70 @@ class MongoStore:
                 "llm_explanation": llm_eval.get("llm_explanation"),
             }},
         )
+
+    # ------------------------------------------------------------------
+    # Traces
+    # ------------------------------------------------------------------
+
+    def insert_trace_steps(self, steps: list[dict]) -> int:
+        """Bulk insert trace step documents. Strips internal ``_`` fields.
+
+        Returns the number of inserted documents.
+        """
+        if not steps:
+            return 0
+        docs = [
+            {k: v for k, v in step.items() if not k.startswith("_")}
+            for step in steps
+        ]
+        result = self.traces.insert_many(docs, ordered=False)
+        return len(result.inserted_ids)
+
+    def get_trace(self, run_id: str, entry_id: str) -> list[dict]:
+        """Return all trace steps for an entry in a run, ordered by step_index."""
+        return list(
+            self.traces.find(
+                {"run_id": run_id, "entry_id": entry_id}, {"_id": 0}
+            ).sort("step_index", ASCENDING)
+        )
+
+    def get_slow_nodes(self, run_id: str, min_duration_ms: int = 5000) -> list[dict]:
+        """Return trace steps slower than ``min_duration_ms``, slowest first."""
+        return list(
+            self.traces.find(
+                {"run_id": run_id, "duration_ms": {"$gte": min_duration_ms}},
+                {"_id": 0},
+            ).sort("duration_ms", DESCENDING)
+        )
+
+    def get_node_stats(self, run_id: str) -> list[dict]:
+        """Per-node aggregate stats: count, avg/max duration, total tokens, errors."""
+        pipeline = [
+            {"$match": {"run_id": run_id}},
+            {"$group": {
+                "_id": "$node_name",
+                "count": {"$sum": 1},
+                "avg_duration_ms": {"$avg": "$duration_ms"},
+                "max_duration_ms": {"$max": "$duration_ms"},
+                "total_tokens": {
+                    "$sum": {"$ifNull": ["$llm_usage.total_tokens", 0]}
+                },
+                "error_count": {
+                    "$sum": {"$cond": [{"$ne": ["$error", None]}, 1, 0]}
+                },
+            }},
+            {"$sort": {"avg_duration_ms": -1}},
+            {"$project": {
+                "_id": 0,
+                "node_name": "$_id",
+                "count": 1,
+                "avg_duration_ms": {"$round": ["$avg_duration_ms", 1]},
+                "max_duration_ms": {"$round": ["$max_duration_ms", 1]},
+                "total_tokens": 1,
+                "error_count": 1,
+            }},
+        ]
+        return list(self.traces.aggregate(pipeline))
 
     # ------------------------------------------------------------------
     # Queries

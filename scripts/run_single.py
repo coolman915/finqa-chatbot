@@ -18,6 +18,7 @@ from finqa_chatbot.pipeline import load_dataset, run_single
 from finqa_chatbot.evaluation.official import _relaxed_equal, relaxed_equal_program
 from finqa_chatbot.dsl.parser import parse_program_to_tokens
 from finqa_chatbot.schema import EntryType
+from finqa_chatbot.storage import get_mongo_store
 
 
 def main():
@@ -50,7 +51,22 @@ def main():
     print(f"API key: ...{settings.openai_api_key[-10:]}")
     print("-" * 60)
 
-    result = run_single(entry)
+    # MongoDB tracing
+    store = get_mongo_store()
+    run_id = None
+    if store:
+        from datetime import datetime, timezone
+        run_id = f"debug_{entry['id'].replace('/', '_')}_{datetime.now(timezone.utc).strftime('%H%M%S')}"
+        store.create_run(run_id=run_id, split=args.split, num_examples=1, config={
+            "model": settings.model_name, "max_rounds": settings.max_rounds,
+        })
+        print(f"Tracing to MongoDB: {run_id}")
+
+    result = run_single(entry, run_id=run_id, store=store)
+
+    if store and run_id:
+        print(f"\nView trace:  python scripts/query_results.py trace {run_id} \"{entry['id']}\"")
+        store.close()
 
     print("\n" + "=" * 60)
     print("RESULT")
