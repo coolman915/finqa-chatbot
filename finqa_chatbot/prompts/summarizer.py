@@ -35,7 +35,7 @@ RULES:
 - Focus ONLY on the specific row mentioned in the question, not totals or other rows.
 - When a question asks "what percentage of X is Y" or "what portion", use divide(Y, X).
 - When a question asks "what was the ratio of A to B", use divide(A, B).
-- "by how much did X increase/decrease" usually means the percentage change: subtract then divide by base.
+- "by how much did X increase/decrease" ALWAYS means the percentage change: subtract(new, old), divide(#0, old). This is different from "what was the change" which is absolute.
 - If the table shows a breakdown of changes (volume, price, other), sum the ABSOLUTE values of the components — do NOT subtract the year totals.
 - Pay attention to units in column headers or surrounding text (millions, thousands, billions). Use the raw table values directly — do NOT add extra unit conversions unless needed. HOWEVER:
   - If a value from the text is in DIFFERENT units than the table (e.g., text says "$30.2 million" but table is "in thousands"), you MUST convert to match: multiply(30.2, const_1000) to get thousands.
@@ -43,7 +43,7 @@ RULES:
   - If computing a per-unit cost (e.g., "cost per car") and the dollar amount is in millions, convert to raw dollars first: multiply(amount, const_1000000), then divide.
 - Every program step MUST be an operation: op(arg1, arg2). Never output bare numbers without an operation.
 - STEP REFERENCES: #0 is step 0's result, #1 is step 1's result, etc. When adding multiply(#N, const_100) at the end, N must be the LAST step's index (e.g., for a 3-step program: step0, step1, multiply(#1, const_100) — NOT #0).
-- IMPORTANT: If the question asks "what was the change/difference/net change in X" (absolute amount), use ONLY subtract(new, old). Do NOT divide — the answer is the raw difference, not a percentage.
+- IMPORTANT: If the question asks "what was the change/difference/net change in X" (absolute amount, NOT "by how much"), use ONLY subtract(new, old). Do NOT divide — the answer is the raw difference, not a percentage.
 - If the question asks for a percentage result (e.g., "what percentage", "as a percent", "% of"), the final answer should be in percentage points (e.g., 10.8, not 0.108). If your computation gives a decimal ratio, multiply by const_100.
 - "what was the change in X as a percentage of Y" requires TWO steps: subtract for the change, then divide by Y. Do not skip the divide.
 """
@@ -73,6 +73,11 @@ SUMMARIZER_FEW_SHOT = [
         "question": "what is the percent change in total net revenue from 2005 to 2006?",
         "table": "| year | net revenue |\n| 2006 | 7.0 |\n| 2005 | 6.3 |",
         "reasoning": "Row: net revenue. Values: 2006=7.0, 2005=6.3. Percent change: (new-old)/old.\nsubtract(7.0, 6.3), divide(#0, 6.3)",
+    },
+    {
+        "question": "by how much did the weighted average exercise price increase from 2015 to 2016?",
+        "table": "| year | weighted average exercise price |\n| 2016 | $ 52.80 |\n| 2015 | $ 38.25 |",
+        "reasoning": "\"By how much did X increase\" means percentage change, NOT the absolute dollar difference. Values: 2016=52.80, 2015=38.25. Percentage change: (new-old)/old.\nsubtract(52.80, 38.25), divide(#0, 38.25)",
     },
     {
         "question": "what percentage of total purchase commitments are due after 2014?",

@@ -78,6 +78,14 @@ def summarizer_node(state: GraphState) -> dict:
         log_text=log_text,
     )
 
+    # Add inline hints for ambiguous question patterns
+    q_lower = question.lower()
+    if "by how much" in q_lower:
+        user_content += (
+            '\n\nREMINDER: "by how much did X increase/decrease" means PERCENTAGE change. '
+            "Use subtract(new, old), divide(#0, old) — do NOT output just subtract."
+        )
+
     # On retry rounds, include previous attempt and error for self-correction
     round_number = state.get("round_number", 1)
     if round_number > 1:
