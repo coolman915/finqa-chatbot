@@ -212,14 +212,22 @@ def _normalize_program_tokens(tokens: list[str]) -> list[str]:
 
 
 def _strip_const_100_step(tokens: list[str]) -> list[str]:
-    """Strip trailing multiply(#N, const_100) or divide(#N, const_100) from token list."""
+    """Strip trailing multiply(#N, const_100) or divide(#N, const_100) from token list.
+
+    Only strips when #N references the immediately preceding step (i.e. it's a
+    pure percentage conversion, not an unrelated computation using an earlier result).
+    """
     prog = tokens[:-1]  # remove EOF
     if len(prog) >= 4:
         last_op = prog[-4].strip("(")
         last_arg2 = prog[-2]
         if last_op in ("multiply", "divide") and last_arg2 in ("const_100", "100"):
-            if prog[-3].startswith("#"):
-                return prog[:-4] + ["EOF"]
+            arg1 = prog[-3]
+            if arg1.startswith("#"):
+                ref = int(arg1.lstrip("#"))
+                n_steps = len(prog) // 4
+                if ref == n_steps - 2:  # must reference the immediately preceding step
+                    return prog[:-4] + ["EOF"]
     return tokens
 
 

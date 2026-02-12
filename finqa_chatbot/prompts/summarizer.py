@@ -39,6 +39,7 @@ RULES:
 - If the table shows a breakdown of changes (volume, price, other), sum the ABSOLUTE values of the components — do NOT subtract the year totals.
 - Pay attention to units in column headers (millions, thousands, billions). Use the raw table values directly — do NOT add extra unit conversions unless the question explicitly asks for a different unit.
 - Every program step MUST be an operation: op(arg1, arg2). Never output bare numbers without an operation.
+- STEP REFERENCES: #0 is step 0's result, #1 is step 1's result, etc. When adding multiply(#N, const_100) at the end, N must be the LAST step's index (e.g., for a 3-step program: step0, step1, multiply(#1, const_100) — NOT #0).
 - IMPORTANT: If the question asks "what was the change/difference/net change in X" (absolute amount), use ONLY subtract(new, old). Do NOT divide — the answer is the raw difference, not a percentage.
 - If the question asks for a percentage result (e.g., "what percentage", "as a percent", "% of"), the final answer should be in percentage points (e.g., 10.8, not 0.108). If your computation gives a decimal ratio, multiply by const_100.
 - "what was the change in X as a percentage of Y" requires TWO steps: subtract for the change, then divide by Y. Do not skip the divide.
@@ -94,6 +95,21 @@ SUMMARIZER_FEW_SHOT = [
         "question": "what percentage of total obligations are due in 2012?",
         "table": "| year | amount |\n| 2011 | 1200 |\n| 2012 | 3500 |\n| total | 14000 |",
         "reasoning": "Row: 2012 = 3500. Total = 14000. Percentage = part/whole, then multiply by 100 for percentage points.\ndivide(3500, 14000), multiply(#0, const_100)",
+    },
+    {
+        "question": "what is the growth rate in net income from 2016 to 2017 as a percentage?",
+        "table": "| ( in millions ) | 2017 | 2016 | 2015 |\n| net income | 6035 | 6967 | 6873 |",
+        "reasoning": "Row: net income. Values: 2017=6035, 2016=6967. Growth rate: (new-old)/old, then multiply by 100. Step #0=subtract, #1=divide, #2=multiply.\nsubtract(6035, 6967), divide(#0, 6967), multiply(#1, const_100)",
+    },
+    {
+        "question": "what is the percentage change in profit margin from 2016 to 2017?",
+        "table": "| ( in millions ) | 2017 | 2016 |\n| revenue | 5000 | 4000 |\n| net income | 750 | 640 |",
+        "reasoning": "Profit margin = net income / revenue. 2017 margin: 750/5000. 2016 margin: 640/4000. Then percentage change of margin. Step #0=divide(750,5000), #1=divide(640,4000), #2=subtract(#0,#1), #3=divide(#2,#1), #4=multiply(#3,const_100).\ndivide(750, 5000), divide(640, 4000), subtract(#0, #1), divide(#2, #1), multiply(#3, const_100)",
+    },
+    {
+        "question": "what would 2018 sales be if the average annual increase continues?",
+        "table": "| ( in millions ) | 2017 | 2016 | 2015 |\n| sales | 1200 | 1100 | 900 |",
+        "reasoning": "Growth 2016-2017: 1200-1100=100. Growth 2015-2016: 1100-900=200. Average growth: (100+200)/2=150. Projected 2018: 1200+150. Step #0=subtract(1200,1100), #1=subtract(1100,900), #2=add(#0,#1), #3=divide(#2,const_2), #4=add(#3,1200).\nsubtract(1200, 1100), subtract(1100, 900), add(#0, #1), divide(#2, const_2), add(#3, 1200)",
     },
 ]
 
