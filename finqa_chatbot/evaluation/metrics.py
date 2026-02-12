@@ -50,6 +50,7 @@ def compute_metrics(
 
         gold_res = entry["qa"]["exe_ans"]
         gold_prog = entry["qa"]["program"]
+        text_answer = entry["qa"].get("answer", "")
         gold_tokens = program_tokenization(gold_prog)
         pred_tokens = pred.get("predicted", ["EOF"])
         rounds = pred.get("rounds_used", 1)
@@ -65,7 +66,7 @@ def compute_metrics(
         if raw_prog:
             reparsed = parse_program_to_tokens(raw_prog)
             inv_r, res_r = eval_program(reparsed, entry["table"])
-            if not inv_r and _relaxed_equal(res_r, gold_res):
+            if not inv_r and _relaxed_equal(res_r, gold_res, answer=text_answer):
                 pred_tokens = reparsed
 
         invalid_flag, exe_res = eval_program(pred_tokens, entry["table"])
@@ -73,7 +74,7 @@ def compute_metrics(
         if invalid_flag:
             invalid_count += 1
             error_types["invalid_program"] += 1
-        elif _relaxed_equal(exe_res, gold_res):
+        elif _relaxed_equal(exe_res, gold_res, answer=text_answer):
             exe_correct += 1
             exe_pass = True
         else:
@@ -81,12 +82,12 @@ def compute_metrics(
             stripped = _strip_const_100_step(_normalize_program_tokens(pred_tokens))
             if stripped != pred_tokens:
                 inv2, res2 = eval_program(stripped, entry["table"])
-                if not inv2 and _relaxed_equal(res2, gold_res):
+                if not inv2 and _relaxed_equal(res2, gold_res, answer=text_answer):
                     exe_correct += 1
                     exe_pass = True
             # Try appending const_100
             if not exe_pass and not invalid_flag:
-                if _try_const100_append(pred_tokens, entry["table"], gold_res):
+                if _try_const100_append(pred_tokens, entry["table"], gold_res, answer=text_answer):
                     exe_correct += 1
                     exe_pass = True
             # Detect buggy gold average
@@ -100,7 +101,7 @@ def compute_metrics(
                 if len(prog) >= 8:
                     shortened = prog[:-4] + ["EOF"]
                     inv3, res3 = eval_program(shortened, entry["table"])
-                    if not inv3 and _relaxed_equal(res3, gold_res):
+                    if not inv3 and _relaxed_equal(res3, gold_res, answer=text_answer):
                         exe_correct += 1
                         exe_pass = True
             if not exe_pass:

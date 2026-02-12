@@ -62,9 +62,10 @@ def main():
     print(f"Final answer:      {result.get('final_answer', 'n/a')}")
 
     gold_ans = entry["qa"]["exe_ans"]
+    text_answer = entry["qa"].get("answer", "")
     exe_result = result.get("exe_result", "n/a")
     exact = str(exe_result) == str(gold_ans)
-    relaxed = _relaxed_equal(exe_result, gold_ans)
+    relaxed = _relaxed_equal(exe_result, gold_ans, answer=text_answer)
 
     # Program accuracy
     pred_program = result.get("raw_program", "")

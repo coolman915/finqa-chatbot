@@ -30,17 +30,18 @@ for pred in preds:
     gold_tokens = program_tokenization(gold_prog)
     pred_tokens = pred["predicted"]
 
+    text_answer = entry["qa"].get("answer", "")
     invalid_flag, exe_res = eval_program(pred_tokens, entry["table"])
 
     # Check exe with relaxed + stripped
     exe_ok = False
-    if not invalid_flag and _relaxed_equal(exe_res, gold_res):
+    if not invalid_flag and _relaxed_equal(exe_res, gold_res, answer=text_answer):
         exe_ok = True
     elif not invalid_flag:
         stripped = _strip_const_100_step(_normalize_program_tokens(pred_tokens))
         if stripped != pred_tokens:
             inv2, res2 = eval_program(stripped, entry["table"])
-            if not inv2 and _relaxed_equal(res2, gold_res):
+            if not inv2 and _relaxed_equal(res2, gold_res, answer=text_answer):
                 exe_ok = True
 
     prog_ok = relaxed_equal_program(gold_tokens, pred_tokens)

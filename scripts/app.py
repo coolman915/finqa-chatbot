@@ -100,7 +100,8 @@ if mode == "Browse dataset":
         st.markdown(f"**Rounds used:** {rounds}")
 
         # Correctness check
-        correct = _relaxed_equal(pred_ans, gold_ans)
+        text_answer = entry["qa"].get("answer", "")
+        correct = _relaxed_equal(pred_ans, gold_ans, answer=text_answer)
         if correct:
             st.success(f"CORRECT  —  predicted `{pred_ans}` matches gold `{gold_ans}`")
         else:

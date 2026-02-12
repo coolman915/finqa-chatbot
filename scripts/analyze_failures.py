@@ -26,8 +26,9 @@ for pred in preds:
     gold_tokens = program_tokenization(gold_prog)
     pred_tokens = pred['predicted']
 
+    text_answer = entry['qa'].get('answer', '')
     invalid_flag, exe_res = eval_program(pred_tokens, entry['table'])
-    exe_ok = not invalid_flag and _relaxed_equal(exe_res, gold_res)
+    exe_ok = not invalid_flag and _relaxed_equal(exe_res, gold_res, answer=text_answer)
     prog_ok = relaxed_equal_program(gold_tokens, pred_tokens)
 
     if not exe_ok:

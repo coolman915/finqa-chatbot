@@ -174,21 +174,26 @@ class MongoStore:
         run_id: str,
         prediction: dict[str, Any],
         gold_entry: dict[str, Any],
+        split: str = "",
+        list_number: int | None = None,
     ) -> None:
         """Insert a single prediction with inline correctness evaluation."""
         try:
             gold_ans = gold_entry["qa"]["exe_ans"]
             gold_prog = gold_entry["qa"].get("program", "")
+            text_answer = gold_entry["qa"].get("answer", "")
             pred_prog = prediction.get("raw_program", "")
             pred_tokens = parse_program_to_tokens(pred_prog) if pred_prog else ["EOF"]
             gold_tokens = parse_program_to_tokens(gold_prog) if gold_prog else ["EOF"]
 
-            exe_correct = _relaxed_equal(prediction.get("exe_result"), gold_ans)
+            exe_correct = _relaxed_equal(prediction.get("exe_result"), gold_ans, answer=text_answer)
             prog_correct = relaxed_equal_program(gold_tokens, pred_tokens)
 
             doc = {
                 "run_id": run_id,
                 "entry_id": prediction["id"],
+                "split": split,
+                "list_number": list_number,
                 "raw_program": pred_prog,
                 "exe_result": prediction.get("exe_result"),
                 "rounds_used": prediction.get("rounds_used", 0),
@@ -199,7 +204,7 @@ class MongoStore:
                 "prog_correct": prog_correct,
                 "gold_program": gold_prog,
                 "gold_answer": gold_ans,
-                "answer": gold_entry["qa"].get("answer", ""),
+                "answer": text_answer,
             }
             self.predictions.update_one(
                 {"run_id": run_id, "entry_id": prediction["id"]},
@@ -214,9 +219,12 @@ class MongoStore:
         run_id: str,
         predictions: list[dict[str, Any]],
         gold_data: list[dict[str, Any]],
+        split: str = "",
     ) -> int:
         """Batch insert predictions. Returns count of upserted docs."""
         gold_dict = {e["id"]: e for e in gold_data}
+        # Build list_number lookup from original data order
+        id_to_idx = {e["id"]: i for i, e in enumerate(gold_data)}
         ops = []
         for pred in predictions:
             entry = gold_dict.get(pred["id"])
@@ -224,6 +232,7 @@ class MongoStore:
                 continue
             gold_ans = entry["qa"]["exe_ans"]
             gold_prog = entry["qa"].get("program", "")
+            text_answer = entry["qa"].get("answer", "")
             pred_prog = pred.get("raw_program", "")
             pred_tokens = parse_program_to_tokens(pred_prog) if pred_prog else ["EOF"]
             gold_tokens = parse_program_to_tokens(gold_prog) if gold_prog else ["EOF"]
@@ -231,17 +240,19 @@ class MongoStore:
             doc = {
                 "run_id": run_id,
                 "entry_id": pred["id"],
+                "split": split,
+                "list_number": id_to_idx.get(pred["id"]),
                 "raw_program": pred_prog,
                 "exe_result": pred.get("exe_result"),
                 "rounds_used": pred.get("rounds_used", 0),
                 "final_answer": pred.get("final_answer"),
                 "verification_status": pred.get("verification_status", ""),
                 "error": pred.get("error"),
-                "exe_correct": _relaxed_equal(pred.get("exe_result"), gold_ans),
+                "exe_correct": _relaxed_equal(pred.get("exe_result"), gold_ans, answer=text_answer),
                 "prog_correct": relaxed_equal_program(gold_tokens, pred_tokens),
                 "gold_program": gold_prog,
                 "gold_answer": gold_ans,
-                "answer": entry["qa"].get("answer", ""),
+                "answer": text_answer,
             }
             ops.append(UpdateOne(
                 {"run_id": run_id, "entry_id": pred["id"]},

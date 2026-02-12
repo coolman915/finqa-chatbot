@@ -143,6 +143,7 @@ def run_batch(
         logger.info("MongoDB run created: %s", run_id)
 
     data_dict = {e["id"]: e for e in data}
+    id_to_idx = {e["id"]: i for i, e in enumerate(data)}
     graph = build_graph()
     predictions: list[dict] = []
     lock = threading.Lock()
@@ -185,7 +186,8 @@ def run_batch(
 
             # Quick accuracy check (relaxed for const_100 ambiguity)
             gold_ans = entry["qa"]["exe_ans"]
-            is_exe_correct = _relaxed_equal(result.get("exe_result"), gold_ans)
+            text_answer = entry["qa"].get("answer", "")
+            is_exe_correct = _relaxed_equal(result.get("exe_result"), gold_ans, answer=text_answer)
             has_error = "error" in result
 
             # Program accuracy check
@@ -199,7 +201,11 @@ def run_batch(
             if store and run_id:
                 gold_entry = data_dict.get(result["id"])
                 if gold_entry:
-                    store.insert_prediction(run_id, result, gold_entry)
+                    store.insert_prediction(
+                        run_id, result, gold_entry,
+                        split=split,
+                        list_number=id_to_idx.get(result["id"]),
+                    )
 
             with lock:
                 predictions.append(result)
