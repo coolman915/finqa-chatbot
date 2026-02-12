@@ -1,6 +1,12 @@
 """Analyze failure cases from predictions file."""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from pathlib import Path
+
+_project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_project_root))
+from dotenv import load_dotenv
+load_dotenv(_project_root / ".env", override=True)
+
 import json
 from finqa_chatbot.evaluation.official import _relaxed_equal, program_tokenization, relaxed_equal_program
 from finqa_chatbot.dsl.executor import eval_program

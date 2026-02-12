@@ -1,6 +1,11 @@
 """Comprehensive failure analysis for the full dev set."""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from pathlib import Path
+
+_project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_project_root))
+from dotenv import load_dotenv
+load_dotenv(_project_root / ".env", override=True)
 
 import json
 from collections import Counter, defaultdict
