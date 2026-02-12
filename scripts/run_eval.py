@@ -124,6 +124,35 @@ def main():
         else:
             print(f"  {k}: {v}")
 
+    # LLM evaluation summary
+    if args.llm_eval:
+        llm_evaluated = [p for p in predictions if p.get("llm_correct") is not None]
+        llm_correct = [p for p in llm_evaluated if p.get("llm_correct")]
+        total = len(predictions)
+
+        # Count failure reasons
+        reason_counts: dict[str, int] = {}
+        for p in llm_evaluated:
+            reason = p.get("failure_reason", "unknown")
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+        print("\n" + "=" * 60)
+        print("LLM EVALUATION (gpt-4o)")
+        print("=" * 60)
+        print(f"  evaluated:        {len(llm_evaluated)}")
+        print(f"  llm_correct:      {len(llm_correct)}")
+        adj_exe = official["exe_correct"] + len(llm_correct)
+        print(f"  adjusted_exe_acc: {adj_exe / total:.4f} ({adj_exe}/{total})")
+        print(f"  failure breakdown:")
+        for reason, count in sorted(reason_counts.items(), key=lambda x: -x[1]):
+            print(f"    {reason}: {count}")
+
+        # Add to official results for saving
+        official["llm_evaluated"] = len(llm_evaluated)
+        official["llm_correct"] = len(llm_correct)
+        official["adjusted_exe_acc"] = round(adj_exe / total, 4)
+        official["failure_reasons"] = reason_counts
+
     # Save results to MongoDB
     if run_id:
         from finqa_chatbot.storage import get_mongo_store

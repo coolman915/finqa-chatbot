@@ -213,6 +213,12 @@ def run_batch(
                         text_answer=text_answer,
                     )
 
+            # Attach LLM eval results to prediction dict
+            if llm_eval_result:
+                result["llm_correct"] = llm_eval_result.get("llm_correct")
+                result["failure_reason"] = llm_eval_result.get("failure_reason")
+                result["llm_explanation"] = llm_eval_result.get("llm_explanation")
+
             # Insert prediction into MongoDB
             if store and run_id:
                 gold_entry = data_dict.get(result["id"])

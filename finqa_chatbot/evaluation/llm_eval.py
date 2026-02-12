@@ -35,7 +35,7 @@ Expected text answer: {text_answer}
 
 ## Task
 
-1. Judge whether the predicted answer is actually correct (it may use a valid alternate approach that the heuristic evaluator missed).
+1. Judge whether the predicted program and answer is actually correct (it may use a valid alternate approach that the heuristic evaluator missed).
 2. If not correct, classify the failure reason from this fixed set:
    - correct_alternate: prediction is correct via an alternate valid approach
    - wrong_number: used wrong values from the table/text
