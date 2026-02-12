@@ -23,19 +23,39 @@ FAILURE_REASONS = [
 _EVAL_PROMPT = """\
 You are evaluating a predicted answer to a financial question against the gold (correct) answer.
 
-Question: {question}
+## Source Data
 
-Gold program: {gold_program}
-Gold answer: {gold_answer}
+Table:
+{table}
 
-Predicted program: {pred_program}
-Predicted answer: {pred_answer}
+Pre-text:
+{pre_text}
 
-Expected text answer: {text_answer}
+Post-text:
+{post_text}
+
+## Question
+
+{question}
+
+## Gold (expected)
+
+Program: {gold_program}
+Answer: {gold_answer}
+Text answer: {text_answer}
+
+## Predicted
+
+Program: {pred_program}
+Answer: {pred_answer}
+
+## Values extracted by agents
+
+{extracted_values}
 
 ## Task
 
-1. Judge whether the predicted program and answer is actually correct (it may use a valid alternate approach that the heuristic evaluator missed).
+1. Using the source data above, judge whether the predicted program and answer is actually correct (it may use a valid alternate approach that the heuristic evaluator missed).
 2. If not correct, classify the failure reason from this fixed set:
    - correct_alternate: prediction is correct via an alternate valid approach
    - wrong_number: used wrong values from the table/text
@@ -49,11 +69,24 @@ Expected text answer: {text_answer}
    - rounding_error: close but not within tolerance
 3. Provide a brief explanation (1-2 sentences).
 
+## Important: const_100 scaling
+If the only difference is a trailing multiply(#N, const_100) or divide(#N, const_100) step (converting between ratio and percentage points, e.g. 0.227 vs 22.7), judge as CORRECT. Both representations are valid — expressing "22.7% growth" as 0.227 or 22.7 are equivalent.
+
 ## Response format (strict)
 
 CORRECT: YES or NO
 REASON: <one of the categories above>
 EXPLANATION: <1-2 sentence explanation>"""
+
+
+def _format_table(table: list[list[str]]) -> str:
+    """Format a table as a markdown string for the eval prompt."""
+    if not table:
+        return "(no table)"
+    lines = []
+    for row in table:
+        lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(lines)
 
 
 def llm_evaluate_prediction(
@@ -63,8 +96,24 @@ def llm_evaluate_prediction(
     gold_answer: Any,
     pred_answer: Any,
     text_answer: str = "",
+    table: list[list[str]] | None = None,
+    pre_text: list[str] | None = None,
+    post_text: list[str] | None = None,
+    extracted_values: str = "",
 ) -> dict:
     """LLM evaluation of a failed prediction.
+
+    Args:
+        question: The financial question.
+        gold_program: Gold DSL program.
+        pred_program: Predicted DSL program.
+        gold_answer: Gold execution result (numeric).
+        pred_answer: Predicted execution result (numeric).
+        text_answer: Human-readable answer (e.g. "15.3%").
+        table: Source table as list of rows.
+        pre_text: Pre-text paragraphs from the dataset entry.
+        post_text: Post-text paragraphs from the dataset entry.
+        extracted_values: Agent-extracted values (formatted string from shared log).
 
     Returns:
         {
@@ -90,6 +139,10 @@ def llm_evaluate_prediction(
         gold_answer=gold_answer,
         pred_answer=pred_answer,
         text_answer=text_answer,
+        table=_format_table(table) if table else "(no table)",
+        pre_text="\n".join(pre_text) if pre_text else "(none)",
+        post_text="\n".join(post_text) if post_text else "(none)",
+        extracted_values=extracted_values or "(none)",
     )
 
     try:

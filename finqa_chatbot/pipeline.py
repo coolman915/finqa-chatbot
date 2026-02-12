@@ -211,6 +211,9 @@ def run_batch(
                         gold_answer=gold_ans,
                         pred_answer=result.get("exe_result"),
                         text_answer=text_answer,
+                        table=gold_entry.get("table"),
+                        pre_text=gold_entry.get("pre_text"),
+                        post_text=gold_entry.get("post_text"),
                     )
 
             # Attach LLM eval results to prediction dict
