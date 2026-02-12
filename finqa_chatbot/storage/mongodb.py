@@ -199,6 +199,7 @@ class MongoStore:
                 "prog_correct": prog_correct,
                 "gold_program": gold_prog,
                 "gold_answer": gold_ans,
+                "answer": gold_entry["qa"].get("answer", ""),
             }
             self.predictions.update_one(
                 {"run_id": run_id, "entry_id": prediction["id"]},
@@ -240,6 +241,7 @@ class MongoStore:
                 "prog_correct": relaxed_equal_program(gold_tokens, pred_tokens),
                 "gold_program": gold_prog,
                 "gold_answer": gold_ans,
+                "answer": entry["qa"].get("answer", ""),
             }
             ops.append(UpdateOne(
                 {"run_id": run_id, "entry_id": pred["id"]},
