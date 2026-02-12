@@ -13,7 +13,7 @@ from .config import get_settings
 from .graph.workflow import build_graph
 from .graph.callbacks import FinQATracingCallback
 from .dsl.parser import parse_program_to_tokens
-from .evaluation.official import _relaxed_equal
+from .evaluation.official import _relaxed_equal, relaxed_equal_program
 
 
 def load_dataset(split: str = "dev") -> list[dict]:
@@ -117,6 +117,7 @@ def run_batch(
     lock = threading.Lock()
     start = time.time()
     correct_count = 0
+    prog_correct_count = 0
     error_count = 0
 
     # Load existing results to resume
@@ -153,14 +154,23 @@ def run_batch(
 
             # Quick accuracy check (relaxed for const_100 ambiguity)
             gold_ans = entry["qa"]["exe_ans"]
-            is_correct = _relaxed_equal(result.get("exe_result"), gold_ans)
+            is_exe_correct = _relaxed_equal(result.get("exe_result"), gold_ans)
             has_error = "error" in result
+
+            # Program accuracy check
+            pred_prog = result.get("raw_program", "")
+            gold_prog = entry["qa"].get("program", "")
+            pred_tokens = parse_program_to_tokens(pred_prog) if pred_prog else ["EOF"]
+            gold_tokens = parse_program_to_tokens(gold_prog) if gold_prog else ["EOF"]
+            is_prog_correct = relaxed_equal_program(gold_tokens, pred_tokens)
 
             with lock:
                 predictions.append(result)
                 done += 1
-                if is_correct:
+                if is_exe_correct:
                     correct_count += 1
+                if is_prog_correct:
+                    prog_correct_count += 1
                 if has_error:
                     error_count += 1
 
@@ -169,10 +179,12 @@ def run_batch(
                 remaining_time = (total - done) / rate if rate > 0 else 0
 
                 if done % save_every == 0 or done == total:
-                    acc = correct_count / done if done > 0 else 0
+                    exe_acc = correct_count / done if done > 0 else 0
+                    prog_acc = prog_correct_count / done if done > 0 else 0
                     print(
                         f"  {done}/{total}  "
-                        f"acc={acc:.1%}  "
+                        f"exe_acc={exe_acc:.1%}  "
+                        f"prog_acc={prog_acc:.1%}  "
                         f"err={error_count}  "
                         f"{elapsed:.0f}s elapsed  "
                         f"~{remaining_time:.0f}s remaining  "
