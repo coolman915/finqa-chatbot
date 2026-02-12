@@ -37,7 +37,7 @@ RULES:
 - When a question asks "what was the ratio of A to B", use divide(A, B).
 - "by how much did X increase/decrease" usually means the percentage change: subtract then divide by base.
 - If the table shows a breakdown of changes (volume, price, other), sum the ABSOLUTE values of the components — do NOT subtract the year totals.
-- Pay attention to units in column headers (millions, thousands, billions). Use the raw table values directly — do NOT add extra unit conversions unless the question explicitly asks for a different unit.
+- Pay attention to units in column headers or surrounding text (millions, thousands, billions). Use the raw table values directly — do NOT add extra unit conversions unless the question explicitly asks for a different unit. HOWEVER, if a value from the text is in DIFFERENT units than the table (e.g., text says "$30.2 million" but table is "in thousands"), you MUST convert to match: multiply(30.2, const_1000) to get thousands, or divide by const_1000 to get millions.
 - Every program step MUST be an operation: op(arg1, arg2). Never output bare numbers without an operation.
 - STEP REFERENCES: #0 is step 0's result, #1 is step 1's result, etc. When adding multiply(#N, const_100) at the end, N must be the LAST step's index (e.g., for a 3-step program: step0, step1, multiply(#1, const_100) — NOT #0).
 - IMPORTANT: If the question asks "what was the change/difference/net change in X" (absolute amount), use ONLY subtract(new, old). Do NOT divide — the answer is the raw difference, not a percentage.
