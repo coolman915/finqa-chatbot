@@ -76,15 +76,38 @@ MODEL_NAME=gpt-5-nano       # optional, default: gpt-5-nano
 MAX_ROUNDS=6                 # optional, default: 3
 NUM_CANDIDATES=5             # optional, default: 5
 LANGCHAIN_API_KEY=ls-...     # optional, for LangSmith tracing
+MONGODB_URI=mongodb://localhost:27017  # optional, for tracing & result storage
 ```
 
-### 3. Build embeddings cache (optional, improves few-shot selection)
+### 3. MongoDB setup (optional, for tracing & result storage)
+
+MongoDB stores run results, predictions, and per-node step-level traces. The system works without it, but tracing and batch evaluation features require it.
+
+```bash
+# macOS (Homebrew)
+brew tap mongodb/brew
+brew install mongodb-community
+brew services start mongodb-community
+
+# Docker
+docker run -d --name mongodb -p 27017:27017 mongodb/mongodb-community-server:latest
+
+# Verify connection
+python -c "from pymongo import MongoClient; print(MongoClient('mongodb://localhost:27017').server_info()['version'])"
+```
+
+When MongoDB is available, the system automatically:
+- Saves run metadata, predictions, and evaluation results to the `finqa` database
+- Records per-node step-level traces (timing, outputs, LLM token usage) for debugging
+- Supports resume on interrupted batch runs (`--resume` flag)
+
+### 4. Build embeddings cache (optional, improves few-shot selection)
 
 ```bash
 python scripts/build_embeddings_cache.py
 ```
 
-### 4. Run your first example
+### 5. Run your first example
 
 ```bash
 python scripts/run_single.py --index 5
