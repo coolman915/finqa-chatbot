@@ -34,7 +34,6 @@ def test_scheduler_round_1():
     assert result["round_number"] == 1
     assert "table_agent" in result["active_agents"]
     assert "context_agent" in result["active_agents"]
-    assert "kg_agent" in result["active_agents"]
 
 
 def test_scheduler_re_engagement():

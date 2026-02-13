@@ -8,7 +8,10 @@ Launch:
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_project_root))
+from dotenv import load_dotenv
+load_dotenv(_project_root / ".env", override=True)
 
 import streamlit as st
 
@@ -97,7 +100,8 @@ if mode == "Browse dataset":
         st.markdown(f"**Rounds used:** {rounds}")
 
         # Correctness check
-        correct = _relaxed_equal(pred_ans, gold_ans)
+        text_answer = entry["qa"].get("answer", "")
+        correct = _relaxed_equal(pred_ans, gold_ans, answer=text_answer)
         if correct:
             st.success(f"CORRECT  —  predicted `{pred_ans}` matches gold `{gold_ans}`")
         else:

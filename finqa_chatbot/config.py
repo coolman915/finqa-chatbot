@@ -32,16 +32,17 @@ class Settings(BaseSettings):
     dataset_dir: Path = Path(__file__).resolve().parent.parent / "data"
     output_dir: Path = Path(__file__).resolve().parent.parent / "output"
 
+    # MongoDB
+    mongodb_uri: str = ""
+    mongodb_database: str = "finqa"
+
     # LangSmith
     langchain_tracing_v2: bool = True
     langchain_api_key: str = ""
     langchain_project: str = "finqa-chatbot"
 
     model_config = {
-        "env_file": [
-            str(Path(__file__).resolve().parent.parent.parent / ".env"),
-            str(Path(__file__).resolve().parent.parent / ".env"),
-        ],
+        "env_file": str(Path(__file__).resolve().parent.parent / ".env"),
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }

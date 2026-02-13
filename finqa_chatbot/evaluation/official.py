@@ -157,41 +157,31 @@ def equal_program(program1: list[str], program2: list[str]) -> bool:
     return sym_prog1 == sym_prog2
 
 
-def _relaxed_equal(pred, gold) -> bool:
+def _relaxed_equal(pred, gold, answer: str = "") -> bool:
     """Check if predicted result matches gold, with tolerance for common mismatches.
+
+    Args:
+        pred: Predicted execution result.
+        gold: Gold execution result (exe_ans).
+        answer: Human-readable answer text from the dataset (e.g. "15.3%").
+            The 100x scale check only applies when answer contains '%'.
 
     Handles:
     - Floating-point tolerance (absolute and relative)
-    - Sign errors (reversed subtract operands)
-    - Factor of 10/100/1000 (const_100 ambiguity, scale errors)
+    - Factor of 100 (const_100 ambiguity) — only for percentage answers
     """
     if pred == gold:
         return True
     try:
         p, g = float(pred), float(gold)
-        # Exact match within tolerance
-        if abs(p - g) < 1e-4:
-            return True
-        # Sign-agnostic: magnitudes match (handles reversed subtract operands)
-        if abs(p) > 0 and abs(g) > 0:
-            if abs(abs(p) - abs(g)) < 1e-4:
-                return True
-            if abs(abs(p) - abs(g)) / abs(g) < 0.05:
-                return True
-        # Scale factor checks (use absolute ratio to handle sign+scale combos)
-        if g != 0:
+        # Scale factor of 100 — only when answer is a percentage
+        is_pct = "%" in answer if answer else False
+        if is_pct and g != 0:
             ratio = abs(p / g)
-            # Off by factor of 10
-            if abs(ratio - 10) < 0.5 or abs(ratio - 0.1) < 0.005:
-                return True
-            # Off by factor of 100 (const_100 ambiguity)
             if abs(ratio - 100) < 1.0 or abs(ratio - 0.01) < 1e-4:
                 return True
-            # Off by factor of 1000 (const_1000 ambiguity)
-            if abs(ratio - 1000) < 5.0 or abs(ratio - 0.001) < 5e-6:
-                return True
-        # Relative tolerance for rounding (5% — verified zero false positives on dev)
-        if g != 0 and abs(p - g) / abs(g) < 0.05:
+        # Relative tolerance for rounding (1% — verified zero false positives on dev)
+        if g != 0 and abs(p - g) / abs(g) < 0.01:
             return True
     except (ValueError, TypeError, ZeroDivisionError):
         pass
@@ -222,14 +212,22 @@ def _normalize_program_tokens(tokens: list[str]) -> list[str]:
 
 
 def _strip_const_100_step(tokens: list[str]) -> list[str]:
-    """Strip trailing multiply(#N, const_100) or divide(#N, const_100) from token list."""
+    """Strip trailing multiply(#N, const_100) or divide(#N, const_100) from token list.
+
+    Only strips when #N references the immediately preceding step (i.e. it's a
+    pure percentage conversion, not an unrelated computation using an earlier result).
+    """
     prog = tokens[:-1]  # remove EOF
     if len(prog) >= 4:
         last_op = prog[-4].strip("(")
         last_arg2 = prog[-2]
         if last_op in ("multiply", "divide") and last_arg2 in ("const_100", "100"):
-            if prog[-3].startswith("#"):
-                return prog[:-4] + ["EOF"]
+            arg1 = prog[-3]
+            if arg1.startswith("#"):
+                ref = int(arg1.lstrip("#"))
+                n_steps = len(prog) // 4
+                if ref == n_steps - 2:  # must reference the immediately preceding step
+                    return prog[:-4] + ["EOF"]
     return tokens
 
 
@@ -401,7 +399,7 @@ def _is_buggy_gold_average(gold_prog: str, gold_res, pred_res) -> bool:
     return False
 
 
-def _try_const100_append(pred_tokens: list[str], table, gold_res) -> bool:
+def _try_const100_append(pred_tokens: list[str], table, gold_res, answer: str = "") -> bool:
     """Try appending multiply(#N, const_100) to a predicted program.
 
     Handles cases where the model outputs a ratio but gold expects percentage points.
@@ -412,7 +410,7 @@ def _try_const100_append(pred_tokens: list[str], table, gold_res) -> bool:
     n_steps = len(prog) // 4
     appended = prog + [f"multiply(", f"#{n_steps - 1}", "const_100", ")", "EOF"]
     inv, res = eval_program(appended, table)
-    if not inv and _relaxed_equal(res, gold_res):
+    if not inv and _relaxed_equal(res, gold_res, answer=answer):
         return True
     return False
 
@@ -430,7 +428,8 @@ def evaluate_result(
     When *use_llm_judge* is True, predictions that pass exe_acc but fail
     structural prog_acc are re-evaluated by an LLM equivalence judge.
 
-    Returns a dict with ``exe_acc``, ``prog_acc``, and counts.
+    Returns a dict with ``exe_acc``, ``prog_acc``, counts, ``invalid_rate``,
+    ``avg_rounds``, and ``error_breakdown``.
     """
     data_dict = {entry["id"]: entry for entry in gold_data}
 
@@ -438,15 +437,31 @@ def evaluate_result(
     prog_correct = 0
     llm_prog_correct = 0
     invalid_count = 0
+    total_rounds = 0
     total = len(predictions)
+    error_types: dict[str, int] = {
+        "invalid_program": 0,
+        "wrong_answer": 0,
+        "no_program": 0,
+    }
 
     for pred in predictions:
-        entry = data_dict[pred["id"]]
+        entry = data_dict.get(pred["id"])
+        if entry is None:
+            continue
         table = entry["table"]
         gold_res = entry["qa"]["exe_ans"]
         gold_prog = entry["qa"]["program"]
+        text_answer = entry["qa"].get("answer", "")
         gold_tokens = program_tokenization(gold_prog)
-        pred_tokens = pred["predicted"]
+        pred_tokens = pred.get("predicted", ["EOF"])
+        rounds = pred.get("rounds_used", 1)
+        total_rounds += rounds
+
+        if pred_tokens == ["EOF"] or not pred.get("raw_program"):
+            error_types["no_program"] += 1
+            invalid_count += 1
+            continue
 
         # --- Execution accuracy ---
         # Try re-parsing raw_program through updated parser (picks up fixes)
@@ -454,13 +469,14 @@ def evaluate_result(
         if raw_prog:
             reparsed = parse_program_to_tokens(raw_prog)
             inv_r, res_r = eval_program(reparsed, table)
-            if not inv_r and _relaxed_equal(res_r, gold_res):
+            if not inv_r and _relaxed_equal(res_r, gold_res, answer=text_answer):
                 pred_tokens = reparsed
         invalid_flag, exe_res = eval_program(pred_tokens, table)
         exe_pass = False
         if invalid_flag:
             invalid_count += 1
-        elif _relaxed_equal(exe_res, gold_res):
+            error_types["invalid_program"] += 1
+        elif _relaxed_equal(exe_res, gold_res, answer=text_answer):
             exe_correct += 1
             exe_pass = True
         else:
@@ -468,12 +484,12 @@ def evaluate_result(
             stripped = _strip_const_100_step(_normalize_program_tokens(pred_tokens))
             if stripped != pred_tokens:
                 inv2, res2 = eval_program(stripped, table)
-                if not inv2 and _relaxed_equal(res2, gold_res):
+                if not inv2 and _relaxed_equal(res2, gold_res, answer=text_answer):
                     exe_correct += 1
                     exe_pass = True
             # Try appending multiply(#N, const_100) — model gave ratio, gold wants %
             if not exe_pass and not invalid_flag:
-                if _try_const100_append(pred_tokens, table, gold_res):
+                if _try_const100_append(pred_tokens, table, gold_res, answer=text_answer):
                     exe_correct += 1
                     exe_pass = True
             # Detect buggy gold average pattern — model computes correct average
@@ -487,9 +503,11 @@ def evaluate_result(
                 if len(prog) >= 8:
                     shortened = prog[:-4] + ["EOF"]
                     inv3, res3 = eval_program(shortened, table)
-                    if not inv3 and _relaxed_equal(res3, gold_res):
+                    if not inv3 and _relaxed_equal(res3, gold_res, answer=text_answer):
                         exe_correct += 1
                         exe_pass = True
+            if not exe_pass:
+                error_types["wrong_answer"] += 1
 
         # --- Program accuracy ---
         prog_pass = relaxed_equal_program(gold_tokens, pred_tokens)
@@ -543,6 +561,9 @@ def evaluate_result(
         "prog_correct": prog_correct,
         "prog_acc": round(prog_correct / total, 4) if total else 0,
         "invalid_count": invalid_count,
+        "invalid_rate": round(invalid_count / total, 4) if total else 0,
+        "avg_rounds": round(total_rounds / total, 2) if total else 0,
+        "error_breakdown": error_types,
     }
     if use_llm_judge:
         result["llm_prog_rescued"] = llm_prog_correct

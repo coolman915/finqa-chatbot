@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +15,10 @@ from .config import get_settings
 from .graph.workflow import build_graph
 from .graph.callbacks import FinQATracingCallback
 from .dsl.parser import parse_program_to_tokens
-from .evaluation.official import _relaxed_equal
+from .evaluation.official import _relaxed_equal, relaxed_equal_program
+from .storage import get_mongo_store
+
+logger = logging.getLogger(__name__)
 
 
 def load_dataset(split: str = "dev") -> list[dict]:
@@ -24,11 +29,19 @@ def load_dataset(split: str = "dev") -> list[dict]:
         return json.load(f)
 
 
-def run_single(entry: dict, graph=None) -> dict[str, Any]:
+def run_single(
+    entry: dict,
+    graph=None,
+    run_id: str | None = None,
+    store=None,
+) -> dict[str, Any]:
     """Run the full DeALOG pipeline on a single FinQA entry.
 
     Returns a prediction dict with ``id``, ``predicted`` (token list),
     ``raw_program``, ``exe_result``, and ``rounds_used``.
+
+    If *run_id* and *store* are provided, per-node trace steps are
+    flushed to MongoDB after the graph completes.
     """
     if graph is None:
         graph = build_graph()
@@ -58,7 +71,7 @@ def run_single(entry: dict, graph=None) -> dict[str, Any]:
         "final_answer": None,
     }
 
-    callback = FinQATracingCallback(entry_id=entry_id)
+    callback = FinQATracingCallback(entry_id=entry_id, run_id=run_id or "")
     config = {
         "callbacks": [callback],
         "metadata": {"entry_id": entry_id},
@@ -68,7 +81,7 @@ def run_single(entry: dict, graph=None) -> dict[str, Any]:
         result = graph.invoke(initial_state, config=config)
         program = result.get("selected_program", "")
         tokens = parse_program_to_tokens(program) if program else ["EOF"]
-        return {
+        prediction = {
             "id": entry_id,
             "predicted": tokens,
             "raw_program": program,
@@ -78,7 +91,7 @@ def run_single(entry: dict, graph=None) -> dict[str, Any]:
             "final_answer": result.get("final_answer", "n/a"),
         }
     except Exception as e:
-        return {
+        prediction = {
             "id": entry_id,
             "predicted": ["EOF"],
             "raw_program": "",
@@ -86,6 +99,17 @@ def run_single(entry: dict, graph=None) -> dict[str, Any]:
             "rounds_used": 0,
             "error": str(e),
         }
+
+    # Flush trace steps to MongoDB
+    if store and run_id:
+        try:
+            steps = callback.get_steps()
+            if steps:
+                store.insert_trace_steps(steps)
+        except Exception:
+            logger.debug("Failed to insert trace steps for %s", entry_id, exc_info=True)
+
+    return prediction
 
 
 def run_batch(
@@ -95,7 +119,8 @@ def run_batch(
     save_path: str | None = None,
     save_every: int = 10,
     data: list[dict] | None = None,
-) -> list[dict[str, Any]]:
+    llm_eval: bool = False,
+) -> tuple[list[dict[str, Any]], str | None]:
     """Run the pipeline on a full dataset split with incremental saves.
 
     Args:
@@ -106,17 +131,45 @@ def run_batch(
             incremental saving.
         save_every: Save results every N completed examples.
         data: Pre-loaded/sliced dataset (overrides split + max_examples).
+
+    Returns:
+        Tuple of (predictions, run_id). run_id is None if MongoDB is not available.
     """
     if data is None:
         data = load_dataset(split)
         if max_examples:
             data = data[:max_examples]
 
+    settings = get_settings()
+
+    # MongoDB tracing (opt-in)
+    store = get_mongo_store()
+    run_id: str | None = None
+    if store:
+        now = datetime.now(timezone.utc)
+        run_id = f"run_{now.strftime('%Y%m%d_%H%M%S')}_{split}_{len(data)}"
+        store.create_run(
+            run_id=run_id,
+            split=split,
+            num_examples=len(data),
+            config={
+                "model": settings.model_name,
+                "max_rounds": settings.max_rounds,
+                "num_candidates": settings.num_candidates,
+                "temperature": settings.temperature,
+                "workers": workers,
+            },
+        )
+        logger.info("MongoDB run created: %s", run_id)
+
+    data_dict = {e["id"]: e for e in data}
+    id_to_idx = {e["id"]: i for i, e in enumerate(data)}
     graph = build_graph()
     predictions: list[dict] = []
     lock = threading.Lock()
     start = time.time()
     correct_count = 0
+    prog_correct_count = 0
     error_count = 0
 
     # Load existing results to resume
@@ -143,7 +196,7 @@ def run_batch(
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(run_single, entry, graph): entry
+            executor.submit(run_single, entry, graph, run_id, store): entry
             for entry in remaining
         }
         done = len(completed_ids)
@@ -153,14 +206,59 @@ def run_batch(
 
             # Quick accuracy check (relaxed for const_100 ambiguity)
             gold_ans = entry["qa"]["exe_ans"]
-            is_correct = _relaxed_equal(result.get("exe_result"), gold_ans)
+            text_answer = entry["qa"].get("answer", "")
+            is_exe_correct = _relaxed_equal(result.get("exe_result"), gold_ans, answer=text_answer)
             has_error = "error" in result
+
+            # Program accuracy check
+            pred_prog = result.get("raw_program", "")
+            gold_prog = entry["qa"].get("program", "")
+            pred_tokens = parse_program_to_tokens(pred_prog) if pred_prog else ["EOF"]
+            gold_tokens = parse_program_to_tokens(gold_prog) if gold_prog else ["EOF"]
+            is_prog_correct = relaxed_equal_program(gold_tokens, pred_tokens)
+
+            # LLM evaluation of failures
+            llm_eval_result = None
+            if llm_eval and (not is_exe_correct or not is_prog_correct):
+                from .evaluation.llm_eval import llm_evaluate_prediction
+                gold_entry = data_dict.get(result["id"])
+                if gold_entry:
+                    llm_eval_result = llm_evaluate_prediction(
+                        question=gold_entry["qa"]["question"],
+                        gold_program=gold_prog,
+                        pred_program=pred_prog,
+                        gold_answer=gold_ans,
+                        pred_answer=result.get("exe_result"),
+                        text_answer=text_answer,
+                        table=gold_entry.get("table"),
+                        pre_text=gold_entry.get("pre_text"),
+                        post_text=gold_entry.get("post_text"),
+                    )
+
+            # Attach LLM eval results to prediction dict
+            if llm_eval_result:
+                result["llm_correct"] = llm_eval_result.get("llm_correct")
+                result["failure_reason"] = llm_eval_result.get("failure_reason")
+                result["llm_explanation"] = llm_eval_result.get("llm_explanation")
+
+            # Insert prediction into MongoDB
+            if store and run_id:
+                gold_entry = data_dict.get(result["id"])
+                if gold_entry:
+                    store.insert_prediction(
+                        run_id, result, gold_entry,
+                        split=split,
+                        list_number=id_to_idx.get(result["id"]),
+                        llm_eval=llm_eval_result,
+                    )
 
             with lock:
                 predictions.append(result)
                 done += 1
-                if is_correct:
+                if is_exe_correct:
                     correct_count += 1
+                if is_prog_correct:
+                    prog_correct_count += 1
                 if has_error:
                     error_count += 1
 
@@ -169,10 +267,12 @@ def run_batch(
                 remaining_time = (total - done) / rate if rate > 0 else 0
 
                 if done % save_every == 0 or done == total:
-                    acc = correct_count / done if done > 0 else 0
+                    exe_acc = correct_count / done if done > 0 else 0
+                    prog_acc = prog_correct_count / done if done > 0 else 0
                     print(
                         f"  {done}/{total}  "
-                        f"acc={acc:.1%}  "
+                        f"exe_acc={exe_acc:.1%}  "
+                        f"prog_acc={prog_acc:.1%}  "
                         f"err={error_count}  "
                         f"{elapsed:.0f}s elapsed  "
                         f"~{remaining_time:.0f}s remaining  "
@@ -187,4 +287,4 @@ def run_batch(
     id_order = {e["id"]: i for i, e in enumerate(data)}
     predictions.sort(key=lambda x: id_order.get(x["id"], 0))
 
-    return predictions
+    return predictions, run_id
