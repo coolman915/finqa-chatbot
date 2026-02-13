@@ -2,11 +2,11 @@
 
 Agentic DSL synthesis system for numerical reasoning over financial documents, built on the [FinQA dataset](https://arxiv.org/abs/2109.00122).
 
-**Key results:** 80.4% execution accuracy, 74.7% program accuracy (with LLM judge) on the 883-example dev set using `gpt-5-nano`.
+**Key results:** 76.0% execution accuracy, 82.8% adjusted accuracy (with LLM eval) on the 883-example dev set using `gpt-5-nano`.
 
 ## Architecture
 
-The system uses a **LangGraph state machine** implementing the DeALOG (Decentralized Agents with Logs) multi-agent protocol:
+The system uses a **LangGraph state machine** implementing a decentralized multi-agent protocol with a shared log:
 
 ```
                     ┌─────────┐
@@ -108,6 +108,8 @@ python scripts/run_single.py --entry_id "Single/2015/page_38.pdf-2"
 python scripts/run_single.py --split test --index 0
 ```
 
+Each run saves step-level traces to MongoDB (if configured), showing per-node timing, outputs, and LLM token usage.
+
 ### Step-by-step demo
 
 ```bash
@@ -123,13 +125,30 @@ Runs one example with verbose output showing every agent step, shared log conten
 python scripts/run_eval.py --split dev --start 0 --end 50 --workers 4
 
 # Run first N examples
-python scripts/run_eval.py --split dev --max_examples 100 --workers 8
+python scripts/run_eval.py --split dev --max_examples 100 --workers 16
 
 # Full evaluation with LLM judge
-python scripts/run_eval.py --split dev --workers 8 --llm-judge
+python scripts/run_eval.py --split dev --workers 16 --llm-judge
 
 # Resume interrupted run
-python scripts/run_eval.py --split dev --resume --workers 8
+python scripts/run_eval.py --split dev --resume --workers 16
+```
+
+Tested with up to 100 concurrent workers with zero API errors.
+
+### MongoDB tracing & debugging
+
+Step-level traces capture per-node execution details (timing, outputs, LLM token usage, errors) similar to LangSmith:
+
+```bash
+# View step-by-step trace for a specific example
+python scripts/query_results.py trace <run_id> <entry_id>
+
+# View per-node aggregate stats (avg/max latency, token usage, error count)
+python scripts/query_results.py node-stats <run_id>
+
+# View run summary and failures
+python scripts/query_results.py failures <run_id>
 ```
 
 ### LLM failure evaluation
@@ -156,6 +175,14 @@ python scripts/run_5_live.py       # 5 examples, quick sanity check
 python scripts/run_20_examples.py  # 20 examples, broader coverage
 ```
 
+### LLM latency benchmark
+
+```bash
+python scripts/benchmark_llm_latency.py
+```
+
+Measures gpt-5-nano latency vs prompt size and completion size. Key finding: prompt tokens add negligible latency (~0.x ms/token), while completion tokens dominate at ~8-14 ms/token.
+
 ### Failure analysis
 
 ```bash
@@ -168,6 +195,14 @@ python scripts/test_failures.py --reeval              # re-evaluate specific fai
 ```bash
 python scripts/build_embeddings_cache.py              # build OpenAI embedding cache (.npy)
 ```
+
+### Dataset analysis
+
+```bash
+jupyter notebook notebooks/dataset_analysis.ipynb
+```
+
+Interactive notebook with 11 sections: split statistics, question type classification, program/operation analysis, table characteristics, text context, answer distribution, complexity analysis, evidence source & fact analysis (reproduces FinQA paper statistics), company analysis, and summary.
 
 ### Test suite
 
@@ -203,24 +238,28 @@ finqa-chatbot/
 │   │   └── langsmith_eval.py   # LangSmith evaluation dataset upload
 │   ├── graph/
 │   │   ├── workflow.py         # LangGraph StateGraph construction
-│   │   ├── scheduler.py        # DeALOG round management and routing
-│   │   ├── callbacks.py        # LangSmith tracing callback
+│   │   ├── scheduler.py        # Round management and agent routing
+│   │   ├── callbacks.py        # Per-node step-level tracing (timing, outputs, LLM tokens)
 │   │   └── state.py            # GraphState type definition
 │   ├── prompts/
-│   │   ├── summarizer.py       # DSL synthesis prompt templates
+│   │   ├── summarizer.py       # DSL synthesis prompt templates (14 few-shot examples)
 │   │   ├── kg_extraction.py    # KG triplet extraction prompts
 │   │   ├── verification.py     # Verification prompts
 │   │   └── system.py           # System prompts
-│   └── retrieval/              # Embedding-based retrieval utilities
+│   ├── retrieval/              # Embedding-based retrieval utilities
+│   └── storage/
+│       └── mongodb.py          # MongoDB store (runs, predictions, traces)
 ├── scripts/
 │   ├── app.py                  # Streamlit chatbot UI
-│   ├── run_single.py           # Single example CLI
+│   ├── run_single.py           # Single example CLI (with MongoDB tracing)
 │   ├── run_one_explained.py    # Step-by-step verbose demo
 │   ├── run_eval.py             # Batch evaluation CLI
 │   ├── run_5_live.py           # Quick 5-example benchmark
 │   ├── run_20_examples.py      # 20-example benchmark
+│   ├── benchmark_llm_latency.py   # LLM latency vs prompt/completion size
 │   ├── build_embeddings_cache.py  # OpenAI embeddings cache builder
-│   ├── query_results.py           # MongoDB query CLI (runs, failures, evaluate)
+│   ├── query_results.py           # MongoDB query CLI (runs, failures, trace, node-stats)
+│   ├── load_dataset_mongo.py      # Load dataset into MongoDB
 │   ├── analyze_failures_full.py   # Failure analysis script
 │   └── test_failures.py        # Targeted failure re-evaluation
 ├── tests/
@@ -229,6 +268,8 @@ finqa-chatbot/
 │   ├── test_graph.py           # Graph integration tests
 │   ├── test_verification.py    # Verification agent tests
 │   └── test_kg_extraction.py   # KG extraction tests
+├── notebooks/
+│   └── dataset_analysis.ipynb  # Dataset statistics and characteristics (11 sections)
 ├── data/                       # FinQA dataset (dev.json, test.json, train.json)
 ├── output/                     # Evaluation results and predictions
 ├── docs/
@@ -240,13 +281,13 @@ finqa-chatbot/
 
 | Metric | Value | Count |
 |--------|-------|-------|
-| Execution accuracy | 80.4% | 710 / 883 |
-| Program accuracy | 67.3% | 594 / 883 |
-| Program accuracy (LLM judge) | 74.7% | ~660 / 883 |
-| Invalid programs | ~3% | ~27 / 883 |
-| Average rounds | ~1.8 | — |
+| Execution accuracy | 76.0% | 671 / 883 |
+| Program accuracy | 67.0% | 592 / 883 |
+| Adjusted exe_acc (LLM eval) | 82.8% | 731 / 883 |
+| Invalid programs | 0.2% | 2 / 883 |
+| Average rounds | 1.10 | — |
 
-**Model:** gpt-5-nano | **Max rounds:** 6 | **Temperature:** 0.0 | **Candidates:** 5
+**Model:** gpt-5-nano | **Max rounds:** 5 | **Temperature:** 0.0 | **Candidates:** 5
 
 ### Evaluation methodology
 

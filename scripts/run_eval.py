@@ -147,7 +147,7 @@ def main():
         from finqa_chatbot.storage import get_mongo_store
         store = get_mongo_store()
         if store:
-            store.finish_run(run_id, official, extended, total_time)
+            store.finish_run(run_id, official, official, total_time)
             print(f"\nMongoDB run finalized: {run_id}")
             store.close()
 
@@ -156,7 +156,7 @@ def main():
     with open(results_file, "w") as f:
         json.dump({
             "official": official,
-            "extended": extended,
+            "extended": official,
             "config": {
                 "model": settings.model_name,
                 "max_rounds": settings.max_rounds,
