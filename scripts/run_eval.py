@@ -29,7 +29,6 @@ load_dotenv(_project_root / ".env", override=True)
 from finqa_chatbot.config import get_settings
 from finqa_chatbot.pipeline import run_batch, load_dataset
 from finqa_chatbot.evaluation.official import evaluate_result
-from finqa_chatbot.evaluation.metrics import compute_metrics
 
 
 def main():
@@ -105,20 +104,10 @@ def main():
     print(f"Predictions saved to {out_file}")
 
     print("\n" + "=" * 60)
-    print("OFFICIAL EVALUATION")
+    print("EVALUATION RESULTS")
     print("=" * 60)
     official = evaluate_result(predictions, gold_data, use_llm_judge=args.llm_judge)
     for k, v in official.items():
-        if isinstance(v, float):
-            print(f"  {k}: {v:.4f}")
-        else:
-            print(f"  {k}: {v}")
-
-    print("\n" + "=" * 60)
-    print("EXTENDED METRICS")
-    print("=" * 60)
-    extended = compute_metrics(predictions, gold_data)
-    for k, v in extended.items():
         if isinstance(v, float):
             print(f"  {k}: {v:.4f}")
         else:
