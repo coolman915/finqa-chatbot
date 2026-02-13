@@ -234,7 +234,6 @@ finqa-chatbot/
 │   ├── evaluation/
 │   │   ├── official.py         # exe_acc, prog_acc, relaxed matching, LLM judge
 │   │   ├── llm_eval.py         # LLM failure evaluation and classification (gpt-4o)
-│   │   ├── metrics.py          # Extended metrics and error breakdown
 │   │   └── langsmith_eval.py   # LangSmith evaluation dataset upload
 │   ├── graph/
 │   │   ├── workflow.py         # LangGraph StateGraph construction
@@ -273,7 +272,8 @@ finqa-chatbot/
 ├── data/                       # FinQA dataset (dev.json, test.json, train.json)
 ├── output/                     # Evaluation results and predictions
 ├── docs/
-│   └── technical_report.md     # Technical report
+│   ├── technical_report.md     # Technical report
+│   └── papers/                 # Reference papers (FinQA, DeALOG, KG-reasoning)
 └── pyproject.toml              # Package configuration
 ```
 
@@ -297,3 +297,16 @@ finqa-chatbot/
 - **LLM failure evaluation**: For predictions that fail exe_acc or prog_acc, a gpt-4o call judges whether the prediction is actually correct (alternate valid approach) and classifies the failure reason into one of 10 categories. Available via `--llm-eval` flag or post-hoc via `query_results.py evaluate`.
 
 See [`docs/technical_report.md`](docs/technical_report.md) for the full technical report.
+
+## References
+
+Research papers used in the design of this system (included in `docs/papers/`):
+
+1. **FinQA: A Dataset of Numerical Reasoning over Financial Data** — Chen et al., 2022 ([arXiv:2109.00122](https://arxiv.org/abs/2109.00122))
+   The dataset and DSL this system is built on. Defines the 10-operation DSL, gold program annotations, and evaluation methodology (exe_acc, prog_acc).
+
+2. **DeALOG: Decentralized Multi-Agents Log-Mediated Reasoning Framework** — Chakraborty et al., 2026 ([arXiv:2602.00996](https://arxiv.org/abs/2602.00996))
+   The multi-agent architecture pattern we adopt. Introduces specialized agents (Table, Context, Visual, Summarizing, Verification) coordinating through a shared natural-language log rather than a central planner.
+
+3. **Structure First, Reason Next: Enhancing a Large Language Model using Knowledge Graph for Numerical Reasoning in Financial Documents** — Mishra & Anil, 2026 ([arXiv:2601.07754](https://arxiv.org/abs/2601.07754))
+   Motivates our KGAgent design. Demonstrates that extracting Knowledge Graphs from financial documents and feeding structured information alongside LLM predictions improves numerical reasoning accuracy by ~12% over vanilla LLMs.
